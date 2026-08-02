@@ -189,3 +189,27 @@ for pat in bifrost-data calibre-web-automated-config jobs-sg-data; do
 **Vault 路径**：`secret/homelab/jobs-sg`，键 `bifrost-vk`、`telegram-bot-token`、`telegram-chat-id`、`telegram-thread-id`。
 
 web 服务**不做认证**——公开就业市场统计，无个人数据（[02](02-design.md) §4.4）；若日后需要，按 bifrost 模式加 oauth2-proxy。
+
+---
+
+## 6. 2026-08-03 故障记录：codex apply_patch incompatible payload
+
+**症状**：codex（0.146.0）调用 `apply_patch` 工具一律失败，日志报
+`Fatal error: tool apply_patch invoked with incompatible payload`（`codex_core::tools::router`）。
+
+**根因**：2026-07-31 22:49 把 `~/.codex/dgx-models.json` 重做（配合 DGX 模型升级
+DeepSeek-V4-Flash-0731）时新增了 `apply_patch_tool_type: "freeform"`。freeform 模式下
+客户端期望 apply_patch 参数为**裸补丁文本**，而 0731 模型经 vLLM 实际返回
+JSON 包裹（`{"patch":...}` / `{"input":...}`）→ 客户端判 incompatible。
+
+**证据**：7-24（旧快照，无 freeform 字段）60 次调用 0 错误；7-31 白天 21 次调用
+0 错误；8-01 起（0731 + freeform）100% 失败（105+ 次）。实测客户端 `apply_patch_tool_type`
+只接受 `freeform` 一个值（改 `json` 报 `unknown variant`），无法用改值兼容。
+
+**修复**：备份后删除 `~/.codex/dgx-models.json` 中 `models[0].apply_patch_tool_type`
+字段 → 客户端回退到 7-31 上午验证过的默认（command 数组）形式。
+备份：`~/.codex/dgx-models.json.bak-20260803-071940`（恢复：`cp` 回去即可）。
+验证：`codex -c model_catalog_json=~/.codex/dgx-models.json -c model=deepseek-v4-flash debug models` 解析正常，字段为 None。
+
+**注意**：修改需重启 codex 会话生效。若日后换回官方 freeform 行为，需先确认
+vLLM 侧对 freeform 工具的响应序列化（`--tool-call-parser deepseek_v4`）是否已对齐。
