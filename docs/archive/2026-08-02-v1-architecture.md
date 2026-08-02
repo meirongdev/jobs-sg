@@ -1,3 +1,7 @@
+> **⚠️ 已废弃（SUPERSEDED）— 2026-08-02**
+> 本文的技术选型（Playwright/Scrapy 爬虫、代理轮换、Prefect/Dagster、PostgreSQL+pgvector、MinHash 模糊去重）在定稿当日即被实测推翻：MCF 存在免鉴权公开 JSON API、官方字段自带大部分分类、homelab 节点内存不允许常驻重组件（证据见 [2026-08-02-site-survey.md](2026-08-02-site-survey.md)）。
+> **请勿按本文实现。** 现行设计见 [../02-design.md](../02-design.md)；仍然有效的需求侧内容（分类维度、周报结构、合规原则）已吸收进 [../01-requirements.md](../01-requirements.md)。本文仅作决策历史保留。
+
 # 新加坡 SWE 职位监控与趋势分析系统 — 架构方案
 
 > 面向：招聘趋势 + 技术趋势监控  
