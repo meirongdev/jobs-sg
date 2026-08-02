@@ -1,0 +1,12 @@
+.git
+bin
+dist
+data
+report
+*.db
+*.db-wal
+*.db-shm
+docs
+deploy
+.github
+testdata

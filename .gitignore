@@ -1,0 +1,17 @@
+# build artifacts
+/bin/
+/dist/
+*.test
+
+# local runtime data
+/data/
+/report/
+/report.html
+*.db
+*.db-wal
+*.db-shm
+
+# editor/os
+.DS_Store
+.idea/
+.vscode/
