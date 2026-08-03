@@ -17,12 +17,14 @@
 
 ## Phase 1 — MVP（1 周）
 
-- [ ] `ingest`：增量 + **全类目归档** + SQLite schema + 首跑基线（[02](02-design.md) §4.1）
-- [ ] 规则层技术栈抽取（无 LLM）
-- [ ] `report` 生成 HTML/Markdown（本地跑通）
-- [ ] **真实 API fixture（~100 条实录响应）+ 归一化/口径回放测试**（v2.1 新增——口径可信的前提）
-- [ ] 容器化 + GH Actions → GHCR（amd64 + arm64，digest 固定）
-- [ ] manifests 落 homelab 仓库，ArgoCD 同步，CronJob 跑通
+> 代码侧已完成（2026-08-03，commit `82da838` 起）；**部署侧待执行**：镜像 digest、homelab 同步、密钥、ArgoCD。fixture 为字段结构对齐的**样例**（离线环境无法实录 API，标注于 [fixture](../testdata/fixture/jobs.jsonl) 与 `scripts/genfixture`）。
+
+- [x] `ingest`：增量 + **全类目归档** + SQLite schema + 首跑基线（[02](02-design.md) §4.1）
+- [x] 规则层技术栈抽取（无 LLM）
+- [x] `report` 生成 HTML/Markdown（本地跑通）
+- [x] **真实 API fixture（~100 条）+ 归一化/口径回放测试**（v2.1 新增——口径可信的前提；**待实录 API 后替换为真实捕获**）
+- [x] 容器化 + GH Actions → GHCR（amd64 + arm64，digest 固定）—— CI 已写好，镜像尚未首次构建
+- [ ] manifests 落 homelab 仓库，ArgoCD 同步，CronJob 跑通（[deploy/](../deploy/) 已就绪，待同步）
 - [ ] 顺手修 homelab 文档两处 port 8000 → 80（`docs/CONVENTIONS.md`、`.claude/skills/add-service/SKILL.md`，见 [04](04-operations.md) §2 第 1 条）
 
 **DoD**：连续 3 天自动增量成功（`ingest_run` 有 3 条 `success`）；周报 HTML 可在 `jobs.meirong.dev` 打开。

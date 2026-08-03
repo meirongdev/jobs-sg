@@ -15,13 +15,13 @@ import (
 
 func main() {
 	var (
-		dataDir         = flag.String("data-dir", "/data", "directory holding jobs.db and raw/")
-		baseURL         = flag.String("base-url", "https://api.mycareersfuture.gov.sg/v2", "MCF API base URL")
-		limit           = flag.Int("limit", 100, "page size (API max 100)")
-		delayMS         = flag.Int("delay-ms", 1500, "rate limit between page requests")
-		maxPages        = flag.Int("max-pages", 300, "incremental circuit breaker (pages)")
-		fullScanPages   = flag.Int("full-scan-pages", 1000, "baseline/reconcile full-scan cap (pages)")
-		reconcile       = flag.Bool("reconcile", false, "force weekly full reconcile")
+		dataDir       = flag.String("data-dir", "/data", "directory holding jobs.db and raw/")
+		baseURL       = flag.String("base-url", "https://api.mycareersfuture.gov.sg/v2", "MCF API base URL")
+		limit         = flag.Int("limit", 100, "page size (API max 100)")
+		delayMS       = flag.Int("delay-ms", 1500, "rate limit between page requests")
+		maxPages      = flag.Int("max-pages", 300, "incremental circuit breaker (pages)")
+		fullScanPages = flag.Int("full-scan-pages", 1000, "baseline/reconcile full-scan cap (pages)")
+		reconcile     = flag.Bool("reconcile", false, "force weekly full reconcile")
 	)
 	flag.Parse()
 

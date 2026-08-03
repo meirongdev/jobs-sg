@@ -1,0 +1,60 @@
+# Monday 09:00 SGT report generation + Telegram push (content topic only).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: report
+  namespace: jobs-sg
+spec:
+  schedule: "0 1 * * 1"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          serviceAccountName: jobs-sg
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: report
+              image: ghcr.io/meirongdev/jobs-sg
+              command: ["/usr/local/bin/jobs-sg-report"]
+              args: ["--data-dir", "/data", "--base-url", "https://jobs.meirong.dev"]
+              env:
+                - name: TELEGRAM_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: jobs-sg-secrets
+                      key: telegram-bot-token
+                - name: TELEGRAM_CHAT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: jobs-sg-secrets
+                      key: telegram-chat-id
+                - name: TELEGRAM_THREAD_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: jobs-sg-secrets
+                      key: telegram-thread-id
+              resources:
+                requests: {cpu: 100m, memory: 128Mi}
+                limits: {cpu: 500m, memory: 384Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: jobs-sg-data

@@ -21,7 +21,7 @@ func TestUpsertJobInsertThenUpdate(t *testing.T) {
 		UUID: "u1", Title: "Backend Engineer", Description: "<p>Go API</p>",
 		Metadata: mcf.Metadata{JobPostID: "MCF-1", NewPostingDate: "2026-08-01T00:00:00Z", ExpiryDate: "2026-09-01T00:00:00Z", RepostCount: 0, TotalNumberOfView: 10, TotalNumberJobApplication: 2},
 		SSOCCode: "25121", Categories: []mcf.Category{{Category: "Information Technology"}},
-		Skills: []mcf.Skill{{Skill: "Go", IsKeySkill: true}},
+		Skills:        []mcf.Skill{{Skill: "Go", IsKeySkill: true}},
 		PostedCompany: &mcf.PostedCompany{UEN: "UEN1", Name: "ACME", SSICCode: "62011", EmployeeCount: intPtr(500)},
 	}
 	res := cl.Classify(base)

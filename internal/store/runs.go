@@ -8,10 +8,10 @@ import (
 
 // Run kinds (docs/03 §2 ingest_run.kind).
 const (
-	RunIncremental  = "incremental"
-	RunReconcile    = "full_reconcile"
-	RunEnrich       = "enrich"
-	RunReport       = "report"
+	RunIncremental = "incremental"
+	RunReconcile   = "full_reconcile"
+	RunEnrich      = "enrich"
+	RunReport      = "report"
 )
 
 // Run statuses.

@@ -13,12 +13,12 @@ import (
 // object per line. Archiving happens before any filtering/parsing (docs/02
 // §4.1): the raw archive is the only non-rebuildable asset.
 type ArchiveWriter struct {
-	root     string // raw/ root
-	date     string // YYYY-MM-DD
-	seq      int
-	count    int // records written to this file
-	f        *os.File
-	gz       *gzip.Writer
+	root  string // raw/ root
+	date  string // YYYY-MM-DD
+	seq   int
+	count int // records written to this file
+	f     *os.File
+	gz    *gzip.Writer
 }
 
 // NewArchiveWriter opens (creating as needed) the archive file for the given

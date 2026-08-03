@@ -17,17 +17,17 @@ import (
 )
 
 type row struct {
-	title   string
-	ssoc    string
+	title    string
+	ssoc     string
 	category string
 	posLevel string
-	minYr   int
-	flex    []string
-	desc    string
-	company string
-	uen     string
-	ssic    string
-	emp     int
+	minYr    int
+	flex     []string
+	desc     string
+	company  string
+	uen      string
+	ssic     string
+	emp      int
 }
 
 var rows = []row{
@@ -63,33 +63,33 @@ func main() {
 		r := rows[i%len(rows)]
 		uuid := fmt.Sprintf("%032x", rng.Uint64()+rng.Uint64()*1<<32)
 		j := mcf.Job{
-			UUID: uuid,
-			Title: r.title,
+			UUID:        uuid,
+			Title:       r.title,
 			Description: "<p>" + r.desc + "</p><ul><li>Relevant degree</li></ul>",
 			Metadata: mcf.Metadata{
-				JobPostID:            fmt.Sprintf("MCF-2026-%07d", 1000000+i),
-				NewPostingDate:       now.Add(-time.Duration(i%7) * 24 * time.Hour).Format(time.RFC3339),
-				ExpiryDate:           now.AddDate(0, 0, 30).Format(time.RFC3339),
-				RepostCount:          i % 3,
-				TotalNumberOfView:    50 + rng.Intn(2000),
+				JobPostID:                 fmt.Sprintf("MCF-2026-%07d", 1000000+i),
+				NewPostingDate:            now.Add(-time.Duration(i%7) * 24 * time.Hour).Format(time.RFC3339),
+				ExpiryDate:                now.AddDate(0, 0, 30).Format(time.RFC3339),
+				RepostCount:               i % 3,
+				TotalNumberOfView:         50 + rng.Intn(2000),
 				TotalNumberJobApplication: 1 + rng.Intn(60),
-				IsHideSalary:         i%5 == 0,
+				IsHideSalary:              i%5 == 0,
 			},
-			SSOCCode: r.ssoc,
-			OccupationID: "occ-" + r.ssoc,
-			SSOCVersion: "SSOC2020",
-			PositionLevels: []mcf.PositionLevel{{Position: r.posLevel}},
-			MinimumYearsExperience: intP(r.minYr),
-			Salary: &mcf.Salary{Minimum: 3000 + float64(rng.Intn(5000)), Maximum: 6000 + float64(rng.Intn(6000)), Type: "Monthly"},
-			EmploymentTypes: []string{"Full Time"},
-			Categories: []mcf.Category{{Category: r.category, SubCategory: "Software"}},
-			Schemes: []string{},
+			SSOCCode:                 r.ssoc,
+			OccupationID:             "occ-" + r.ssoc,
+			SSOCVersion:              "SSOC2020",
+			PositionLevels:           []mcf.PositionLevel{{Position: r.posLevel}},
+			MinimumYearsExperience:   intP(r.minYr),
+			Salary:                   &mcf.Salary{Minimum: 3000 + float64(rng.Intn(5000)), Maximum: 6000 + float64(rng.Intn(6000)), Type: "Monthly"},
+			EmploymentTypes:          []string{"Full Time"},
+			Categories:               []mcf.Category{{Category: r.category, SubCategory: "Software"}},
+			Schemes:                  []string{},
 			FlexibleWorkArrangements: r.flex,
-			Skills: []mcf.Skill{{Skill: "Communication", IsKeySkill: false}, {Skill: "Problem solving", IsKeySkill: true}},
-			PostedCompany: &mcf.PostedCompany{UEN: r.uen, Name: r.company, SSICCode: r.ssic, EmployeeCount: intP(r.emp)},
-			Address: &mcf.Address{PostalCode: "018956", Districts: []string{"Central"}, Lat: fp(1.2902), Lng: fp(103.8519), IsOverseas: false},
-			Status: &mcf.JobStatus{JobStatus: "Active"},
-			NumberOfVacancies: intP(1 + rng.Intn(5)),
+			Skills:                   []mcf.Skill{{Skill: "Communication", IsKeySkill: false}, {Skill: "Problem solving", IsKeySkill: true}},
+			PostedCompany:            &mcf.PostedCompany{UEN: r.uen, Name: r.company, SSICCode: r.ssic, EmployeeCount: intP(r.emp)},
+			Address:                  &mcf.Address{PostalCode: "018956", Districts: []string{"Central"}, Lat: fp(1.2902), Lng: fp(103.8519), IsOverseas: false},
+			Status:                   &mcf.JobStatus{JobStatus: "Active"},
+			NumberOfVacancies:        intP(1 + rng.Intn(5)),
 		}
 		jobs = append(jobs, j)
 	}
@@ -106,5 +106,5 @@ func main() {
 	fmt.Printf("wrote %d records to %s\n", len(jobs), out)
 }
 
-func intP(i int) *int      { return &i }
+func intP(i int) *int       { return &i }
 func fp(f float64) *float64 { return &f }

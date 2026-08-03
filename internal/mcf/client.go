@@ -28,12 +28,12 @@ type Summary struct {
 
 // Client is a thin, rate-limited, retrying MCF API client.
 type Client struct {
-	baseURL string
-	ua      string
-	hc      *http.Client
-	limit   int
+	baseURL  string
+	ua       string
+	hc       *http.Client
+	limit    int
 	maxPages int
-	delay   time.Duration
+	delay    time.Duration
 	// RetryDelays are the exponential backoff waits after a 429/5xx.
 	// Default [2,4,8]s per design; tests override with tiny values.
 	RetryDelays []time.Duration
@@ -164,4 +164,3 @@ func truncate(b []byte, n int) string {
 	}
 	return string(b)
 }
-

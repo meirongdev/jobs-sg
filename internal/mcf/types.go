@@ -6,9 +6,9 @@ package mcf
 
 // Page is the /v2/jobs paginated response envelope.
 type Page struct {
-	Results              []Job   `json:"results"`
-	Total                int     `json:"total"`
-	Links                *struct {
+	Results []Job `json:"results"`
+	Total   int   `json:"total"`
+	Links   *struct {
 		Self *string `json:"self"`
 		Next *string `json:"next"`
 	} `json:"_links"`
@@ -19,37 +19,37 @@ type Page struct {
 // publisher-personal fields (createdBy / emailRecipient) are deliberately
 // NOT modeled (compliance red line, docs/01 §5).
 type Job struct {
-	UUID                    string            `json:"uuid"`
-	Title                   string            `json:"title"`
-	Description             string            `json:"description"`
-	Metadata                Metadata          `json:"metadata"`
-	SSOCCode                string            `json:"ssocCode"`
-	OccupationID            string            `json:"occupationId"`
-	SSOCVersion             string            `json:"ssocVersion"`
-	PositionLevels          []PositionLevel   `json:"positionLevels"`
-	MinimumYearsExperience  *int              `json:"minimumYearsExperience"`
-	Salary                  *Salary           `json:"salary"`
-	EmploymentTypes         []string          `json:"employmentTypes"`
-	Categories              []Category        `json:"categories"`
-	Schemes                 []string          `json:"schemes"`
-	FlexibleWorkArrangements []string         `json:"flexibleWorkArrangements"`
-	Skills                  []Skill           `json:"skills"`
-	PostedCompany           *PostedCompany    `json:"postedCompany"`
-	Address                 *Address          `json:"address"`
-	Status                  *JobStatus        `json:"status"`
-	NumberOfVacancies       *int              `json:"numberOfVacancies"`
-	ScreeningQuestions      []interface{}     `json:"screeningQuestions"`
+	UUID                     string          `json:"uuid"`
+	Title                    string          `json:"title"`
+	Description              string          `json:"description"`
+	Metadata                 Metadata        `json:"metadata"`
+	SSOCCode                 string          `json:"ssocCode"`
+	OccupationID             string          `json:"occupationId"`
+	SSOCVersion              string          `json:"ssocVersion"`
+	PositionLevels           []PositionLevel `json:"positionLevels"`
+	MinimumYearsExperience   *int            `json:"minimumYearsExperience"`
+	Salary                   *Salary         `json:"salary"`
+	EmploymentTypes          []string        `json:"employmentTypes"`
+	Categories               []Category      `json:"categories"`
+	Schemes                  []string        `json:"schemes"`
+	FlexibleWorkArrangements []string        `json:"flexibleWorkArrangements"`
+	Skills                   []Skill         `json:"skills"`
+	PostedCompany            *PostedCompany  `json:"postedCompany"`
+	Address                  *Address        `json:"address"`
+	Status                   *JobStatus      `json:"status"`
+	NumberOfVacancies        *int            `json:"numberOfVacancies"`
+	ScreeningQuestions       []interface{}   `json:"screeningQuestions"`
 }
 
 type Metadata struct {
-	JobPostID            string `json:"jobPostId"`
-	NewPostingDate       string `json:"newPostingDate"`
-	OriginalPostingDate  string `json:"originalPostingDate"`
-	ExpiryDate           string `json:"expiryDate"`
-	RepostCount          int    `json:"repostCount"`
-	TotalNumberOfView    int    `json:"totalNumberOfView"`
-	TotalNumberJobApplication int `json:"totalNumberJobApplication"`
-	IsHideSalary         bool   `json:"isHideSalary"`
+	JobPostID                 string `json:"jobPostId"`
+	NewPostingDate            string `json:"newPostingDate"`
+	OriginalPostingDate       string `json:"originalPostingDate"`
+	ExpiryDate                string `json:"expiryDate"`
+	RepostCount               int    `json:"repostCount"`
+	TotalNumberOfView         int    `json:"totalNumberOfView"`
+	TotalNumberJobApplication int    `json:"totalNumberJobApplication"`
+	IsHideSalary              bool   `json:"isHideSalary"`
 }
 
 type PositionLevel struct {
@@ -68,8 +68,8 @@ type Category struct {
 }
 
 type Skill struct {
-	Skill       string `json:"skill"`
-	IsKeySkill  bool   `json:"isKeySkill"`
+	Skill      string `json:"skill"`
+	IsKeySkill bool   `json:"isKeySkill"`
 }
 
 type PostedCompany struct {
@@ -80,11 +80,11 @@ type PostedCompany struct {
 }
 
 type Address struct {
-	PostalCode  string   `json:"postalCode"`
-	Districts   []string `json:"districts"`
-	Lat         *float64 `json:"lat"`
-	Lng         *float64 `json:"lng"`
-	IsOverseas  bool     `json:"isOverseas"`
+	PostalCode string   `json:"postalCode"`
+	Districts  []string `json:"districts"`
+	Lat        *float64 `json:"lat"`
+	Lng        *float64 `json:"lng"`
+	IsOverseas bool     `json:"isOverseas"`
 }
 
 type JobStatus struct {

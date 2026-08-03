@@ -17,17 +17,17 @@ import (
 
 // Config drives one ingest run.
 type Config struct {
-	DataDir         string
-	BaseURL         string
-	UA              string
-	Limit           int
-	MaxPages        int    // incremental circuit breaker (~3 workdays, docs/02 §4.1)
-	FullScanMaxPages int   // baseline/reconcile full scans (~867 pages)
-	Delay           time.Duration
-	BackoffWindow   time.Duration // incremental stop window (default 2d)
-	Reconcile       bool          // force full reconcile
-	Transport       http.RoundTripper
-	Now             func() time.Time // injectable clock for tests
+	DataDir          string
+	BaseURL          string
+	UA               string
+	Limit            int
+	MaxPages         int // incremental circuit breaker (~3 workdays, docs/02 §4.1)
+	FullScanMaxPages int // baseline/reconcile full scans (~867 pages)
+	Delay            time.Duration
+	BackoffWindow    time.Duration // incremental stop window (default 2d)
+	Reconcile        bool          // force full reconcile
+	Transport        http.RoundTripper
+	Now              func() time.Time // injectable clock for tests
 }
 
 // Result summarises a run for ingest_run and callers.

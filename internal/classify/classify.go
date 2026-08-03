@@ -26,28 +26,28 @@ const (
 
 // Result is the full derived classification for one job.
 type Result struct {
-	IsCandidate  bool
-	HitLayer     HitLayer
-	RoleFamily   string
-	IsSWE        bool
-	Seniority    string
-	WorkMode     string
+	IsCandidate      bool
+	HitLayer         HitLayer
+	RoleFamily       string
+	IsSWE            bool
+	Seniority        string
+	WorkMode         string
 	WorkModeInferred bool // true when work_mode is an inferred Onsite
-	CompanyType  string
+	CompanyType      string
 }
 
 // Role families (docs/01 §3).
 const (
-	FamilyBackend  = "Backend"
-	FamilyFrontend = "Frontend"
-	FamilyFullstack= "Fullstack"
-	FamilyMobile   = "Mobile"
-	FamilyPlatform = "Platform"
-	FamilySRE      = "SRE"
-	FamilyData     = "Data"
-	FamilyAIML     = "AI-ML"
-	FamilySecurity = "Security"
-	FamilyOther    = "Other-IT"
+	FamilyBackend   = "Backend"
+	FamilyFrontend  = "Frontend"
+	FamilyFullstack = "Fullstack"
+	FamilyMobile    = "Mobile"
+	FamilyPlatform  = "Platform"
+	FamilySRE       = "SRE"
+	FamilyData      = "Data"
+	FamilyAIML      = "AI-ML"
+	FamilySecurity  = "Security"
+	FamilyOther     = "Other-IT"
 )
 
 // sweFamilies are the strict is_swe families (MVP default; pending Phase 0
