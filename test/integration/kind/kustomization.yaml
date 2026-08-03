@@ -1,0 +1,24 @@
+# Local kind integration-test overlay, self-contained so it builds with the
+# kustomize embedded in kubectl (which forbids loading files outside this dir).
+# reference/ mirrors the corresponding deploy/ manifests (homelab ArgoCD base)
+# with homelab-only resources dropped: monitoring ServiceMonitor/PrometheusRule,
+# Cilium HTTPRoute/ReferenceGrant, and the Vault-backed ExternalSecret (we supply
+# a dummy jobs-sg-secrets instead) and a locally built image. Keep reference/ in
+# sync with deploy/ when those change.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: jobs-sg
+resources:
+  - reference/namespace.yaml
+  - reference/pvc.yaml
+  - reference/limits.yaml
+  - reference/rbac.yaml
+  - reference/cronjob-ingest.yaml
+  - reference/cronjob-enrich.yaml
+  - reference/cronjob-report.yaml
+  - web.yaml
+  - secrets.yaml
+images:
+  - name: ghcr.io/meirongdev/jobs-sg
+    newName: jobs-sg
+    newTag: local

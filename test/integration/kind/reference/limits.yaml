@@ -1,0 +1,26 @@
+# ResourceQuota guards against the historical Job-pod leak (docs/04 §2.4);
+# LimitRange caps per-pod resources (docs/02 §5.2).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: jobs-sg-limits
+  namespace: jobs-sg
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 32Mi
+      default:
+        cpu: 500m
+        memory: 384Mi
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: jobs-sg-quota
+  namespace: jobs-sg
+spec:
+  hard:
+    count/jobs.batch: "25"
+    count/pods: "10"

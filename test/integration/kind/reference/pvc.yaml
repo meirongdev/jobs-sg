@@ -1,0 +1,15 @@
+# docs/02 §5.3 + docs/04 §2.6: local-path is the only StorageClass; 10Gi for
+# ~5 years (archive + jobs.db). Prune=false so ArgoCD never deletes the PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jobs-sg-data
+  namespace: jobs-sg
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,46 @@
+# Daily incremental ingest (02:15 SGT = 18:15 UTC); Sunday runs full reconcile.
+# concurrencyPolicy Forbid + activeDeadlineSeconds + history limits (docs/02 §5.3,
+# docs/04 §2.4 — the 92-pod-leak guard).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ingest
+  namespace: jobs-sg
+spec:
+  schedule: "15 18 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          serviceAccountName: jobs-sg
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: ingest
+              image: ghcr.io/meirongdev/jobs-sg
+              command: ["/usr/local/bin/jobs-sg-ingest"]
+              args: ["--data-dir", "/data"]
+              resources:
+                requests: {cpu: 100m, memory: 128Mi}
+                limits: {cpu: 500m, memory: 384Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: jobs-sg-data

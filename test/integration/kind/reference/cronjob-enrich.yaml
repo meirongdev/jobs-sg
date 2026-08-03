@@ -1,0 +1,53 @@
+# Daily tech-stack enrichment (03:10 SGT). Fail-open: LLM errors keep rule
+# results and exit 0; JobsSgEnrichBacklog surfaces backlog (docs/02 §4.2).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: enrich
+  namespace: jobs-sg
+spec:
+  schedule: "10 19 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          serviceAccountName: jobs-sg
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: enrich
+              image: ghcr.io/meirongdev/jobs-sg
+              command: ["/usr/local/bin/jobs-sg-enrich"]
+              args: ["--data-dir", "/data"]
+              env:
+                - name: LLM_BASE_URL
+                  value: http://bifrost.bifrost.svc.cluster.local:8080
+                - name: BIFROST_VK
+                  valueFrom:
+                    secretKeyRef:
+                      name: jobs-sg-secrets
+                      key: bifrost-vk
+              resources:
+                requests: {cpu: 100m, memory: 192Mi}
+                limits: {cpu: 500m, memory: 512Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: jobs-sg-data

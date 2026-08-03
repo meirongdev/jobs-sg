@@ -1,0 +1,40 @@
+# One-shot bootstrap for the PVC: creates + migrates jobs.db so the read-only
+# web pod can open it (store.Open with mode=ro fails if the file is absent).
+# Runs enrich in rule-only mode (no LLM_BASE_URL) which opens the DB read-write,
+# migrates the schema and exits 0 on an empty DB — so this Job completes cleanly
+# instead of failing the way ingest does when the live MCF API is unreachable.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-db
+  namespace: jobs-sg
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: jobs-sg
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: init-db
+          image: jobs-sg:local
+          command: ["/usr/local/bin/jobs-sg-enrich"]
+          args: ["--data-dir", "/data"]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: jobs-sg-data
