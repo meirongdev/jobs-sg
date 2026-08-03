@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/meirongdev/jobs-sg/internal/llm"
 	"github.com/meirongdev/jobs-sg/internal/store"
@@ -69,21 +70,37 @@ func main() {
 		// governance PreHook applies even in-cluster); a plain vLLM server ignores
 		// the unknown header, so leaving it empty for a direct backend is fine.
 		vk := os.Getenv("BIFROST_VK")
+		// LLM_TIMEOUT (seconds) per call; 0/unset => llm.DefaultTimeout. Reasoning
+		// models on a shared endpoint routinely need more than a minute — see the
+		// DefaultTimeout comment for the measurement behind this.
+		timeout := time.Duration(0)
+		if v := strings.TrimSpace(os.Getenv("LLM_TIMEOUT")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				timeout = time.Duration(n) * time.Second
+			} else {
+				slog.Warn("ignoring invalid LLM_TIMEOUT", "value", v)
+			}
+		}
 		var chain []llm.Extractor
 		for _, m := range modelChain {
-			chain = append(chain, &llm.OpenAIExtractor{BaseURL: baseURL, VirtualKey: vk, Model: m})
+			chain = append(chain, &llm.OpenAIExtractor{BaseURL: baseURL, VirtualKey: vk, Model: m, Timeout: timeout})
 		}
 		extractor = llm.Chain{Extractors: chain}
-		slog.Info("llm enabled", "base_url", baseURL, "models", modelChain)
+		eff := timeout
+		if eff <= 0 {
+			eff = llm.DefaultTimeout
+		}
+		slog.Info("llm enabled", "base_url", baseURL, "models", modelChain, "timeout", eff.String())
 	} else {
 		slog.Info("LLM_BASE_URL unset -> rule-only mode")
 	}
 
 	// LLM_CONCURRENCY tunes the bounded fan-out (Run() defaults to 3 when 0).
 	// The first run after a baseline scan faces a backlog of thousands, and at
-	// ~15s per call concurrency 3 cannot drain it inside a sane activeDeadline;
-	// steady-state daily volume is a fraction of that. Keep it modest — the DGX
-	// backend is a shared cross-tailnet box, not dedicated capacity.
+	// ~66s per call (measured, see llm.DefaultTimeout) concurrency 3 cannot drain
+	// it inside a sane activeDeadline; steady-state daily volume is a fraction of
+	// that. Keep it modest anyway — this fans out onto a shared endpoint, so the
+	// ceiling is the backend's spare capacity, not the local CPU.
 	concurrency := 0
 	if v := strings.TrimSpace(os.Getenv("LLM_CONCURRENCY")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {

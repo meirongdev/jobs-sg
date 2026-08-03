@@ -57,9 +57,26 @@ type OpenAIExtractor struct {
 	VirtualKey string
 	Model      string
 	Client     *http.Client
+	// Timeout for one call. Zero means DefaultTimeout.
+	Timeout time.Duration
 }
 
-// Extract calls the chat completions API once (timeout 60s, per design).
+// DefaultTimeout is the per-call budget when none is set.
+//
+// Deliberately far above observed latency. The previous hardcoded 60s sat just
+// *below* it: one real posting (2.3k chars of description, 497 prompt tokens)
+// against DGX deepseek-v4-flash measured 66.5s end to end, ~937 completion
+// tokens of which most were reasoning. Nearly every call was therefore
+// marginally over budget, so enrich burned 2×60s per job, failed open, left the
+// job in the backlog, and drained at 2.1 jobs/min instead of ~7.
+//
+// The endpoint is non-streaming: no headers arrive until generation finishes, so
+// this budget covers the whole generation ("awaiting headers" in the timeout
+// error). Giving up early also does not stop the server generating, which wastes
+// capacity on a shared GPU box.
+const DefaultTimeout = 300 * time.Second
+
+// Extract calls the chat completions API once.
 func (e *OpenAIExtractor) Extract(ctx context.Context, title, desc string) (Result, error) {
 	desc = truncate(desc, 4000)
 	payload := map[string]any{
@@ -83,7 +100,11 @@ func (e *OpenAIExtractor) Extract(ctx context.Context, title, desc string) (Resu
 	req.Header.Set("x-bf-vk", e.VirtualKey)
 	client := e.Client
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		t := e.Timeout
+		if t <= 0 {
+			t = DefaultTimeout
+		}
+		client = &http.Client{Timeout: t}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
