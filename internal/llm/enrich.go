@@ -50,16 +50,31 @@ func (e *Enricher) Run(ctx context.Context) (EnrichResult, error) {
 		return res, err
 	}
 
-	// 1) rule layer — always
 	ruleBacklog, err := e.DB.RuleBacklog(ctx)
 	if err != nil {
 		return res, err
 	}
-	for _, ref := range ruleBacklog {
-		desc, err := e.readDescription(ctx, ref.RawPath)
+	// Fetched before the rule layer runs so both layers' descriptions come from a
+	// single archive pass. Safe: the two backlogs filter on different job_tech
+	// sources, so writing rule rows does not change the LLM backlog.
+	var llmBacklog []store.JobRef
+	if e.LLM != nil {
+		llmBacklog, err = e.DB.LLMBacklog(ctx)
 		if err != nil {
+			return res, err
+		}
+	}
+
+	// One archive pass for the whole run. Reading per job was O(archive) each
+	// time — see mcf.ReadArchiveDescriptions for the measured cost.
+	descs := e.readDescriptions(ruleBacklog, llmBacklog)
+
+	// 1) rule layer — always
+	for _, ref := range ruleBacklog {
+		desc, ok := descs[ref.RawPath]
+		if !ok {
 			res.Errors++
-			slog.Warn("enrich: read description failed", "uuid", ref.UUID, "err", err)
+			slog.Warn("enrich: description unavailable", "uuid", ref.UUID, "raw_path", ref.RawPath)
 			continue
 		}
 		techs := e.Taxonomy.Extract(ref.Title + " " + desc)
@@ -77,30 +92,35 @@ func (e *Enricher) Run(ctx context.Context) (EnrichResult, error) {
 
 	// 2) LLM layer — optional, cached, fail-open, bounded concurrency
 	if e.LLM != nil {
-		llmBacklog, err := e.DB.LLMBacklog(ctx)
-		if err != nil {
-			return res, err
-		}
 		sem := make(chan struct{}, e.Concurrency)
 		var mu sync.Mutex
 		var wg sync.WaitGroup
 		for _, ref := range llmBacklog {
+			desc, ok := descs[ref.RawPath]
+			if !ok {
+				// Previously this failed silently inside enrichOne, which made a
+				// wholly unreadable archive look like a hang: full CPU, no logs,
+				// no progress.
+				res.Errors++
+				slog.Warn("enrich: description unavailable, skipping llm", "uuid", ref.UUID, "raw_path", ref.RawPath)
+				continue
+			}
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
 				return res, ctx.Err()
 			}
 			wg.Add(1)
-			go func(ref store.JobRef) {
+			go func(ref store.JobRef, desc string) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				calls, cached, errs := e.enrichOne(ctx, ref)
+				calls, cached, errs := e.enrichOne(ctx, ref, desc)
 				mu.Lock()
 				res.LLMCalls += calls
 				res.LLMCached += cached
 				res.Errors += errs
 				mu.Unlock()
-			}(ref)
+			}(ref, desc)
 		}
 		wg.Wait()
 	}
@@ -117,11 +137,36 @@ func (e *Enricher) Run(ctx context.Context) (EnrichResult, error) {
 	return res, nil
 }
 
-func (e *Enricher) enrichOne(ctx context.Context, ref store.JobRef) (calls, cached, errors int) {
-	desc, err := e.readDescription(ctx, ref.RawPath)
-	if err != nil {
-		return 0, 0, 1
+// readDescriptions reads every description the run needs in one archive pass and
+// returns them HTML-stripped, keyed by raw_path. Deduplicates across backlogs so
+// a job in both layers is read once.
+func (e *Enricher) readDescriptions(backlogs ...[]store.JobRef) map[string]string {
+	seen := make(map[string]struct{})
+	paths := make([]string, 0, len(backlogs))
+	for _, b := range backlogs {
+		for _, ref := range b {
+			if _, dup := seen[ref.RawPath]; dup {
+				continue
+			}
+			seen[ref.RawPath] = struct{}{}
+			paths = append(paths, ref.RawPath)
+		}
 	}
+	raw, err := mcf.ReadArchiveDescriptions(e.DataDir, paths)
+	if err != nil {
+		// Fail-open: whatever was read still gets enriched; per-job gaps are
+		// reported by the callers that find a raw_path missing.
+		slog.Warn("enrich: archive read incomplete", "read", len(raw), "wanted", len(paths), "err", err)
+	}
+	out := make(map[string]string, len(raw))
+	for p, d := range raw {
+		out[p] = tech.StripHTML(d)
+	}
+	return out
+}
+
+func (e *Enricher) enrichOne(ctx context.Context, ref store.JobRef, desc string) (calls, cached, errors int) {
+	var err error
 	// cache lookup
 	if cachedJSON, ok, err := e.DB.CacheGet(ctx, ref.DescriptionHash, e.Model, e.PromptVersion); err != nil {
 		return 0, 0, 1
@@ -178,10 +223,5 @@ func (e *Enricher) writeResult(ctx context.Context, uuid string, r Result) error
 	return nil
 }
 
-func (e *Enricher) readDescription(ctx context.Context, rawPath string) (string, error) {
-	job, err := mcf.ReadArchiveRecord(e.DataDir, rawPath)
-	if err != nil {
-		return "", err
-	}
-	return tech.StripHTML(job.Description), nil
-}
+// (the per-job readDescription helper was removed in favour of readDescriptions:
+// one archive pass per run instead of one per job)
