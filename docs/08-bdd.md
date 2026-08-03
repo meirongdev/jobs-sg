@@ -312,6 +312,37 @@
 - When 访问该路由
 - Then 返回 404
 
+### Scenario: 每日采集统计页按 SGT 日分桶
+- Given `ingest_run` 有一次 started_at=2026-08-03T18:15:00Z 的 incremental（=02:15 SGT 08-04）
+- And 同日 03:10 SGT 的 enrich 为 status='partial'
+- When 访问 `/daily`
+- Then 该次采集计入 **2026-08-04** 行而非 08-03
+- And 该行状态取当日最差状态（partial）
+- And 采集计数（pages/归档/更新）来自 ingest 类 run，LLM 计数来自 enrich run
+- And 新增/SWE/下架数来自 `job` 表按 `first_seen_at`/`closed_at` 的 SGT 日聚合
+- And 页面由请求时现算渲染，不依赖任何 CronJob 产物
+
+### Scenario: 没有跑过的日子显示为缺口
+- Given 2026-08-03 当天没有任何 run
+- And 该日之前与之后都有活动
+- When 访问 `/daily`
+- Then 该日仍出现一行，状态显示 "no run"
+- And 管线**首次活动之前**的空白日不渲染（新部署不刷屏）
+
+### Scenario: 单日下钻
+- Given 请求 `/daily/2026-08-04`
+- When 访问该路由
+- Then 列出当日逐条 run（kind/status/起止/耗时/各计数/watermark）
+- And 给出当日 role_family、seniority 分布与技术栈 Top N
+- And 列出当日首见职位（SWE 优先，上限 200 条，超出时标注被截断）
+- And 只展示公开法人/职位字段，不含个人数据
+- And 非法日期、未来日期返回 404
+
+### Scenario: 日窗口参数受限
+- Given 请求 `/daily?days=N`
+- When N 不在 1..90 内或不可解析
+- Then 返回 400
+
 ---
 
 ## Feature: 调度与运维约束（ops）

@@ -63,6 +63,11 @@ CREATE INDEX IF NOT EXISTS idx_job_active       ON job(last_seen_at, closed_at);
 CREATE INDEX IF NOT EXISTS idx_job_swe          ON job(is_swe, posting_date);
 CREATE INDEX IF NOT EXISTS idx_job_company      ON job(company_uen);
 CREATE INDEX IF NOT EXISTS idx_job_fp           ON job(canonical_fp);
+-- The daily pages slice by crawl time, not posting time (web /daily), and
+-- /metrics counts open vs closed on every scrape. Without these both are
+-- full scans of an ~86k-row table on every request.
+CREATE INDEX IF NOT EXISTS idx_job_first_seen   ON job(first_seen_at);
+CREATE INDEX IF NOT EXISTS idx_job_closed       ON job(closed_at);
 
 CREATE TABLE IF NOT EXISTS job_skill (
   job_uuid     TEXT NOT NULL REFERENCES job(uuid),

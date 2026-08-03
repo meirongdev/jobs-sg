@@ -90,6 +90,7 @@
 
 44. As 维护者, I want web 常驻、只读打开 SQLite（回滚日志 mode=ro）, so that 读写互不阻塞、重启不丢状态。
 45. As 维护者, I want `/` 显示最新周报、`/w/{YYYY-Www}` 显示历史周报、`/healthz` 健康检查、`/metrics` Prometheus 指标, so that 可浏览、可监控。
+45b. As 维护者, I want `/daily` 显示每日采集明细统计（按 SGT 日聚合的运行计数与入库量）、`/daily/{YYYY-MM-DD}` 下钻单日, so that 不必翻 kubectl logs 或 Grafana 就能确认「昨天到底爬到了什么、有没有漏跑」；页面请求时现算，ingest 一结束即最新。
 46. As 维护者, I want web 不做认证（内容为公开就业市场统计、无个人数据）, so that 部署简单、可直接公开访问。
 
 ### 可观测性与运维（ops）
@@ -123,7 +124,7 @@
 | `ingest`（cmd/ingest） | CronJob，每日 02:15 SGT | 分页拉取 → 归档 → upsert；周日附加全量对账 + closed_at 生命周期 | 高：fetch 层与 reconcile 层解耦，输入 fixture 可回放 |
 | `enrich`（cmd/enrich） | CronJob，每日 03:10 SGT | 规则层 + LLM 层技术栈抽取，缓存、降级、fail-open | 高：LLM client 为接口，可注入 stub |
 | `report`（cmd/report） | CronJob，周一 09:00 SGT | 物化 weekly_metric → 渲染 HTML/MD → 推 Telegram | 高：渲染纯函数化，指标计算走 SQL fixture |
-| `web`（cmd/web） | Deployment×1 常驻 | 只读托管周报 + `/metrics` + `/healthz` | 高：只读 DB + 无状态 HTTP |
+| `web`（cmd/web） | Deployment×1 常驻 | 只读托管周报 + 现算 `/daily` 采集统计页 + `/metrics` + `/healthz` | 高：只读 DB + 无状态 HTTP |
 | `internal/`（共享库） | 包 | schema/db 访问、分类（is_candidate/is_swe/role_family/seniority/work_mode/company_type）、tech_taxonomy 归一、去重、指标 SQL | 中：核心谓词可单测 |
 
 ### 关键决策

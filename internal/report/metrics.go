@@ -11,6 +11,10 @@ import (
 	"github.com/meirongdev/jobs-sg/internal/store"
 )
 
+// sgt is the report timezone: every week and day bucket is an SGT calendar
+// period, while timestamps are stored as UTC (docs/03 §2).
+var sgt = time.FixedZone("SGT", 8*3600)
+
 // KV is a labeled value for report sections.
 type KV struct {
 	Key   string
@@ -69,7 +73,6 @@ func ISOWeekLabel(t time.Time) string {
 // interval for that ISO week. SGT = UTC+8, so Monday 00:00 SGT = Sunday 16:00 UTC.
 func WeekBounds(monday time.Time) (start, end time.Time) {
 	// normalise to SGT midnight
-	sgt := time.FixedZone("SGT", 8*3600)
 	m := time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, sgt)
 	start = m.UTC()
 	end = m.AddDate(0, 0, 7).UTC()
@@ -300,6 +303,8 @@ func salaryMedian(ctx context.Context, db *store.DB, start, end time.Time) (floa
 	if len(vals) == 0 {
 		return 0, nil
 	}
+	// upper median on even samples: always a salary that actually appeared,
+	// never an averaged value nobody advertised (docs/03 §6)
 	return vals[len(vals)/2], nil
 }
 
@@ -414,6 +419,12 @@ func quality(ctx context.Context, db *store.DB) (DataQuality, error) {
 	return q, nil
 }
 
+// sqlNullableInt is a nullable integer that also accepts a float.
+//
+// sql.NullInt64 would be the obvious choice, but modernc.org/sqlite hands back
+// float64 for expressions over INTEGER columns (SQLite's dynamic typing), and
+// NullInt64 rejects that with a conversion error. Counters here are small
+// enough that the float round-trip is lossless.
 type sqlNullableInt struct {
 	Valid bool
 	Int64 int64
@@ -437,6 +448,8 @@ func (s *sqlNullableInt) Scan(v any) error {
 	return nil
 }
 
+// sqlNullableString is the string counterpart, accepting both string and
+// []byte because the driver returns either depending on the column.
 type sqlNullableString struct {
 	Valid bool
 	S     string

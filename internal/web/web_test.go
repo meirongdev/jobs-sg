@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/meirongdev/jobs-sg/internal/classify"
 	"github.com/meirongdev/jobs-sg/internal/mcf"
@@ -15,6 +16,14 @@ import (
 )
 
 func setupWeb(t *testing.T) *Server {
+	t.Helper()
+	s, _ := setupWebClock(t, nil)
+	return s
+}
+
+// setupWebClock builds the server with an injectable clock and hands back the
+// data dir so tests can write to the DB behind the server's read-only handle.
+func setupWebClock(t *testing.T, now func() time.Time) (*Server, string) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "jobs.db"), false)
@@ -56,12 +65,12 @@ func setupWeb(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 
-	srv, err := New(dir, nil)
+	srv, err := New(dir, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { srv.Close() })
-	return srv
+	return srv, dir
 }
 
 func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
@@ -102,6 +111,144 @@ func TestPathTraversalBlocked(t *testing.T) {
 	s := setupWeb(t)
 	if rec := get(t, s, "/w/..%2f..%2fetc"); rec.Code != http.StatusNotFound {
 		t.Errorf("traversal = %d, want 404", rec.Code)
+	}
+}
+
+// sgtToday is the SGT calendar day the daily pages bucket "now" into.
+func sgtToday() string {
+	return time.Now().In(time.FixedZone("SGT", 8*3600)).Format("2006-01-02")
+}
+
+func TestDailyOverviewRoute(t *testing.T) {
+	s := setupWeb(t)
+	rec := get(t, s, "/daily")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/daily = %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
+	body := rec.Body.String()
+	// rendered live from the read-only handle, so today's run must be there
+	for _, want := range []string{"Daily Crawl Statistics", sgtToday(), "incr"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/daily missing %q", want)
+		}
+	}
+}
+
+func TestDailyWindowParam(t *testing.T) {
+	s := setupWeb(t)
+	// the fixture has one day of history, so the window collapses to it
+	if rec := get(t, s, "/daily?days=3"); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), "1 day · "+sgtToday()) {
+		t.Errorf("/daily?days=3 = %d, body missing the single-day range", rec.Code)
+	}
+	for _, bad := range []string{"0", "-1", "500", "abc"} {
+		if rec := get(t, s, "/daily?days="+bad); rec.Code != http.StatusBadRequest {
+			t.Errorf("/daily?days=%s = %d, want 400", bad, rec.Code)
+		}
+	}
+}
+
+func TestDailyDayRoute(t *testing.T) {
+	s := setupWeb(t)
+	today := sgtToday()
+	rec := get(t, s, "/daily/"+today)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/daily/%s = %d", today, rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Crawl Detail — " + today, "Backend Engineer", "Runs"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/daily/%s missing %q", today, want)
+		}
+	}
+}
+
+func TestDailyDayRouteRejectsBadDates(t *testing.T) {
+	s := setupWeb(t)
+	future := time.Now().In(time.FixedZone("SGT", 8*3600)).AddDate(0, 0, 1).Format("2006-01-02")
+	for _, path := range []string{
+		"/daily/not-a-date",
+		"/daily/2026-13-40",
+		"/daily/" + future, // no data can exist yet
+		"/daily/..%2f..%2fetc",
+	} {
+		if rec := get(t, s, path); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", path, rec.Code)
+		}
+	}
+}
+
+func TestRobotsKeepsCrawlersOffDrillDowns(t *testing.T) {
+	s := setupWeb(t)
+	rec := get(t, s, "/robots.txt")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/robots.txt = %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "Disallow: /daily/") {
+		t.Errorf("robots.txt must disallow the day drill-downs, got:\n%s", body)
+	}
+}
+
+func TestDailyPagesAreCachedUntilTTLExpires(t *testing.T) {
+	clock := time.Now()
+	s, dir := setupWebClock(t, func() time.Time { return clock })
+
+	before := get(t, s, "/daily").Body.String()
+
+	// write behind the server's read-only handle: without the cache the next
+	// request would pick this up immediately
+	db, err := store.Open(filepath.Join(dir, "jobs.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	id, err := db.StartRun(ctx, store.RunEnrich)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishRun(ctx, id, store.StatusPartial, 0, 0, 0, 0, 0, 77, 5, 3, ""); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	if cached := get(t, s, "/daily").Body.String(); cached != before {
+		t.Error("second request inside the TTL should be served from cache")
+	}
+	clock = clock.Add(dailyCacheTTL + time.Second)
+	after := get(t, s, "/daily").Body.String()
+	if after == before {
+		t.Error("page should be rebuilt once the TTL expires")
+	}
+	if !strings.Contains(after, "77 / 5") {
+		t.Errorf("rebuilt page missing the new enrich counters:\n%s", after)
+	}
+	// windows and day pages are keyed separately, so one cannot serve another
+	get(t, s, "/daily?days=1")
+	get(t, s, "/daily/"+sgtToday())
+	for _, key := range []string{"overview:30", "overview:1", "day:" + sgtToday()} {
+		if _, ok := s.cache.get(key, clock); !ok {
+			t.Errorf("cache missing entry %q", key)
+		}
+	}
+}
+
+func TestPageCacheDropsEntriesAtCapacity(t *testing.T) {
+	now := time.Now()
+	c := newPageCache(time.Minute, 2)
+	c.put("a", "A", now)
+	c.put("b", "B", now)
+	c.put("c", "C", now) // over capacity: the map is cleared, then c stored
+	if _, ok := c.get("c", now); !ok {
+		t.Error("newest entry must survive")
+	}
+	if len(c.entries) > 2 {
+		t.Errorf("cache holds %d entries, want <= 2", len(c.entries))
+	}
+	if _, ok := c.get("c", now.Add(2*time.Minute)); ok {
+		t.Error("entry must expire after its TTL")
 	}
 }
 

@@ -97,7 +97,7 @@
 | `ingest` | CronJob | 每日 02:15 SGT | 分页拉取新增职位 → 全类目归档 + 候选入 SQLite；周日额外做全量在架对账 |
 | `enrich` | CronJob | 每日 03:10 SGT | 对新增/描述变更的职位调 LLM 抽技术栈；按描述哈希缓存 |
 | `report` | CronJob | 周一 09:00 SGT | 物化周度聚合表 → 渲染 HTML + Markdown → 推 Telegram |
-| `web` | Deployment×1 | 常驻 | 静态托管周报 + `/metrics` + `/healthz` |
+| `web` | Deployment×1 | 常驻 | 静态托管周报 + 现算每日采集统计页 + `/metrics` + `/healthz` |
 
 **为什么 ingest 与 enrich 分开**：LLM 是唯一可能长时间失败的外部依赖（DGX 关机、虚拟密钥过期）。分离后 enrich 失败不影响数据完整性——原始数据已落盘，enrich 是幂等可重放的补算作业。符合 homelab **fail-open** 硬约束。
 
@@ -217,7 +217,20 @@ Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature
 ### 4.4 web（常驻）
 
 - 单进程 Go 二进制，标准库 `net/http`；只读打开 SQLite：`file:/data/jobs.db?mode=ro`
-- 路由：`/`（最新周报）、`/w/{YYYY-Www}`、`/healthz`、`/metrics`
+- 路由：
+
+| 路由 | 内容 | 产出方式 |
+|---|---|---|
+| `/` | 最新周报 | `report` CronJob 预生成的静态 HTML |
+| `/w/{YYYY-Www}` | 历史周报 | 同上 |
+| `/daily` | **每日采集统计**：按 SGT 日聚合的运行明细表（kind/status/耗时/pages/归档/新增/SWE/更新/下架/errors/LLM）、日新增 SWE 柱状图、近 7 天技术栈 Top 15 | 请求时从 DB 现算渲染 |
+| `/daily/{YYYY-MM-DD}` | 单日下钻：逐条 run 记录、当日 role_family/seniority 分布、当日技术栈、当日首见职位列表（上限 200 条） | 同上 |
+| `/healthz` | 健康检查 | DB ping |
+| `/metrics` | Prometheus 指标 | 从 `ingest_run` 与 `job` 表现算 |
+
+- **两个页面、两种产出方式**：周报是「每周一次、需要推 Telegram、要可回溯归档」的产物，落静态文件；日更明细是「ingest 一跑完就要最新」的运维视图，02:20 SGT 的数据不该等到下一次 CronJob 才可见，因此与 `/metrics` 同样从 DB 现算（无写入，只读连接足够）。两页互相导航。
+- **SGT 日历日分桶**：时间戳按 UTC 存储，而 02:15 SGT 的 ingest 落在前一天 18:15 UTC——按 UTC 日分组会把每次采集记到前一天。SQL 侧用 `date(col,'+8 hours')`，Go 侧用 `.In(sgt)`。
+- 日页面窗口默认 30 天（`?days=` 可调，上限 90），并裁掉管线首次运行之前的空白日；活跃日之间的空缺**保留**，那是漏跑信号。
 - `/metrics` 从 `ingest_run` 与 `job` 表现算（状态在 DB 不在进程内，重启无损）
 - **不做认证**——内容是公开就业市场统计，无个人数据。若日后需要，按 bifrost 模式加 oauth2-proxy。
 

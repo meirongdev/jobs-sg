@@ -184,48 +184,60 @@ func (d *DB) CloseExpired(ctx context.Context, today string) (int, error) {
 // MissAndClose increments miss_count for open jobs not seen in this round and
 // closes those with miss_count >= 2 (two consecutive weeks unseen — the
 // anti-race guard from docs/02 §4.1). Returns number newly closed.
+//
+// The seen set is staged into a temp table so the whole pass is two UPDATEs
+// instead of a SELECT plus an UPDATE per open job: reconcile walks the entire
+// live market (~86k rows), and the row-at-a-time version spent minutes of the
+// job's deadline on round trips. The temp table is safe because a Tx pins one
+// connection, and a rollback discards it along with everything else.
 func (d *DB) MissAndClose(ctx context.Context, seen map[string]bool) (int, error) {
-	rows, err := d.QueryContext(ctx, `SELECT uuid FROM job WHERE closed_at IS NULL`)
+	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
-	var toBump []string
-	for rows.Next() {
-		var u string
-		if err := rows.Scan(&u); err != nil {
-			return 0, err
-		}
-		if !seen[u] {
-			toBump = append(toBump, u)
-		}
-	}
-	if err := rows.Err(); err != nil {
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`CREATE TEMP TABLE IF NOT EXISTS reconcile_seen(uuid TEXT PRIMARY KEY)`); err != nil {
 		return 0, err
 	}
-	closed := 0
-	for _, u := range toBump {
-		var cur int
-		err := d.QueryRowContext(ctx, `SELECT miss_count FROM job WHERE uuid=? AND closed_at IS NULL`, u).Scan(&cur)
-		if err == sql.ErrNoRows {
-			continue // already closed by another path
-		}
-		if err != nil {
-			return closed, err
-		}
-		next := cur + 1
-		if next >= 2 {
-			if _, err := d.ExecContext(ctx, `UPDATE job SET miss_count=?, closed_at=? WHERE uuid=?`, next, NowUTC(), u); err != nil {
-				return closed, err
-			}
-			closed++
-		} else {
-			if _, err := d.ExecContext(ctx, `UPDATE job SET miss_count=? WHERE uuid=?`, next, u); err != nil {
-				return closed, err
-			}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM reconcile_seen`); err != nil {
+		return 0, err
+	}
+	ins, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO reconcile_seen(uuid) VALUES(?)`)
+	if err != nil {
+		return 0, err
+	}
+	defer ins.Close()
+	for u := range seen {
+		if _, err := ins.ExecContext(ctx, u); err != nil {
+			return 0, err
 		}
 	}
-	return closed, nil
+
+	const unseen = `closed_at IS NULL AND uuid NOT IN (SELECT uuid FROM reconcile_seen)`
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE job SET miss_count = miss_count + 1 WHERE `+unseen); err != nil {
+		return 0, err
+	}
+	// only rows just missed can close here, so a job seen this round (miss_count
+	// reset to 0 by UpsertJob/MarkSeen) can never be caught by a stale counter
+	res, err := tx.ExecContext(ctx,
+		`UPDATE job SET closed_at=? WHERE miss_count >= 2 AND `+unseen, NowUTC())
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM reconcile_seen`); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 func upsertSkills(ctx context.Context, tx *sql.Tx, j mcf.Job) error {

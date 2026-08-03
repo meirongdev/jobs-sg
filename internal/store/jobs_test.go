@@ -140,6 +140,23 @@ func TestReconcileLifecycle(t *testing.T) {
 	if !closedAt.Valid {
 		t.Errorf("c should be closed after 2 misses")
 	}
+	// a job present in the seen set is never touched, even carrying a stale
+	// miss_count from earlier rounds
+	if _, err := db.ExecContext(ctx, `UPDATE job SET miss_count=5 WHERE uuid='a'`); err != nil {
+		t.Fatal(err)
+	}
+	if closed, err := db.MissAndClose(ctx, map[string]bool{"a": true}); err != nil || closed != 0 {
+		t.Errorf("seen job with stale miss_count: closed = %d (err %v), want 0", closed, err)
+	}
+	var missA int
+	var closedA sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT miss_count, closed_at FROM job WHERE uuid='a'").Scan(&missA, &closedA); err != nil {
+		t.Fatal(err)
+	}
+	if missA != 5 || closedA.Valid {
+		t.Errorf("seen job = miss_count %d closed %v, want 5 and open", missA, closedA.Valid)
+	}
+
 	// a's counts refreshed by MarkSeen
 	var view int
 	if err := db.QueryRowContext(ctx, "SELECT view_count FROM job WHERE uuid='a'").Scan(&view); err != nil {

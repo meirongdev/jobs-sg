@@ -37,7 +37,17 @@ func Open(path string, readOnly bool) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxOpenConns(1) // SQLite single-writer; serialise our own writes
+	// SQLite has a single writer, so writers stay pinned to one connection and
+	// serialise themselves. Readers do not: holding the web pod to one
+	// connection queues /daily (8 queries) ahead of /healthz, and a handful of
+	// concurrent requests can push the liveness probe past its 2s timeout into
+	// a pod restart. Readers cannot block each other, and busy_timeout covers
+	// the brief overlap with a cron writer.
+	if readOnly {
+		sqlDB.SetMaxOpenConns(4)
+	} else {
+		sqlDB.SetMaxOpenConns(1)
+	}
 	db := &DB{DB: sqlDB}
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping %s: %w", path, err)

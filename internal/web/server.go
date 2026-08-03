@@ -1,6 +1,7 @@
-// Package web serves the weekly reports read-only plus Prometheus metrics.
-// State lives in the DB, not process memory, so restarts lose nothing
-// (docs/02 §4.4).
+// Package web serves two pages read-only — the weekly report (static files
+// from cmd/report) and the daily crawl statistics (rendered per request from
+// the DB) — plus Prometheus metrics. State lives in the DB, not process
+// memory, so restarts lose nothing (docs/02 §4.4).
 package web
 
 import (
@@ -13,11 +14,13 @@ import (
 	"github.com/meirongdev/jobs-sg/internal/store"
 )
 
-// Server holds the read-only DB handle and the report output directory.
+// Server holds the read-only DB handle, the report output directory and the
+// short-lived cache for live-rendered pages.
 type Server struct {
 	db        *store.DB
 	reportDir string
 	now       func() time.Time
+	cache     *pageCache
 }
 
 // New opens the DB read-only and builds the server.
@@ -29,7 +32,12 @@ func New(dataDir string, now func() time.Time) (*Server, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Server{db: db, reportDir: filepath.Join(dataDir, "report"), now: now}, nil
+	return &Server{
+		db:        db,
+		reportDir: filepath.Join(dataDir, "report"),
+		now:       now,
+		cache:     newPageCache(dailyCacheTTL, dailyCacheEntries),
+	}, nil
 }
 
 // Close releases the read-only handle.
@@ -40,6 +48,9 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.handleRoot)
 	mux.HandleFunc("GET /w/{week}", s.handleWeek)
+	mux.HandleFunc("GET /daily", s.handleDaily)
+	mux.HandleFunc("GET /daily/{date}", s.handleDailyDate)
+	mux.HandleFunc("GET /robots.txt", s.handleRobots)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	return mux

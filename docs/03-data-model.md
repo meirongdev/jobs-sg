@@ -221,6 +221,7 @@ CREATE TABLE ingest_run (
 - **在架量**：`closed_at IS NULL AND (expiry_date IS NULL OR expiry_date >= 周末)`。
 - **技术频次**：出现该技术的**职位数**（非词频），按 `job_tech` distinct。
 - **薪资中位数**：`(salary_min + salary_max) / 2` 的中位数，仅 `salary_hidden=0` 且 `salary_type='Monthly'`；其他币种/周期单独统计不混算；跨源先归一 `salary_type`（见 [06](06-multi-source.md) §5）。
+  - **偶数样本取上中位数**（`vals[n/2]`）而非上下两值取平均。理由：口径要跨周稳定且可复现，上中位数总是一个真实出现过的薪资数字，不会造出市场上不存在的值；样本量小时也不会被两侧极值拉动。变更此口径必须全量重算历史（见本节末"口径漂移"）。
 - **投递竞争度**：`application_count / max(vacancies, 1)`。
 
 刷新/重贴判定信号表（与 [02](02-design.md) §4.1 upsert 逻辑对应）：
