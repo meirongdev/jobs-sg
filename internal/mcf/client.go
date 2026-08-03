@@ -107,10 +107,11 @@ func (c *Client) FetchPage(ctx context.Context, page int) (*Page, error) {
 	return nil, fmt.Errorf("mcf: page %d failed after retries: %w", page, lastErr)
 }
 
-// EachJob walks pages 0..N until an empty page, the circuit breaker trips, or
-// fn returns an error. It rate-limits (delay between requests) and applies the
-// page-limit circuit breaker from docs/02 §4.1.
-func (c *Client) EachJob(ctx context.Context, fn func(Job) error) (Summary, error) {
+// EachPage walks pages 0..N until the callback returns stop=true, an empty
+// page, the circuit breaker trips, or an error. It rate-limits (delay between
+// requests) and applies the page-limit circuit breaker from docs/02 §4.1.
+// The callback receives the raw page results and the API-reported total.
+func (c *Client) EachPage(ctx context.Context, fn func(jobs []Job, total int) (bool, error)) (Summary, error) {
 	var s Summary
 	page := 0
 	for {
@@ -122,13 +123,12 @@ func (c *Client) EachJob(ctx context.Context, fn func(Job) error) (Summary, erro
 		if p.Total > s.Total {
 			s.Total = p.Total
 		}
-		for _, j := range p.Results {
-			if err := fn(j); err != nil {
-				return s, err
-			}
-			s.Jobs++
+		stop, err := fn(p.Results, p.Total)
+		if err != nil {
+			return s, err
 		}
-		if len(p.Results) == 0 {
+		s.Jobs += len(p.Results)
+		if stop || len(p.Results) == 0 {
 			return s, nil
 		}
 		if page+1 >= c.maxPages {
@@ -143,6 +143,19 @@ func (c *Client) EachJob(ctx context.Context, fn func(Job) error) (Summary, erro
 			}
 		}
 	}
+}
+
+// EachJob walks pages 0..N invoking fn per job; a convenience wrapper around
+// EachPage.
+func (c *Client) EachJob(ctx context.Context, fn func(Job) error) (Summary, error) {
+	return c.EachPage(ctx, func(jobs []Job, _ int) (bool, error) {
+		for _, j := range jobs {
+			if err := fn(j); err != nil {
+				return true, err
+			}
+		}
+		return false, nil
+	})
 }
 
 func truncate(b []byte, n int) string {
