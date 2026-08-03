@@ -123,20 +123,6 @@ func New(ssoc map[string]string) *Classifier {
 	return &Classifier{ssoc: ssoc}
 }
 
-// LoadSSOC loads the ssoc_taxonomy table into a map via a query function
-// (kept decoupled from the store package).
-func LoadSSOC(query func(query string, args ...any) (rows [][2]string, err error)) (map[string]string, error) {
-	rows, err := query("SELECT ssoc_code, role_family FROM ssoc_taxonomy")
-	if err != nil {
-		return nil, err
-	}
-	m := make(map[string]string, len(rows))
-	for _, r := range rows {
-		m[r[0]] = r[1]
-	}
-	return m, nil
-}
-
 // Classify derives the full Result for one job.
 func (c *Classifier) Classify(j mcf.Job) Result {
 	res := Result{WorkMode: "Onsite", WorkModeInferred: true} // default: inferred Onsite

@@ -93,9 +93,9 @@ CREATE TABLE job_tech (
   job_uuid  TEXT NOT NULL REFERENCES job(uuid),
   tech_slug TEXT NOT NULL,       -- 规范化 slug: python / kubernetes / aws / pytorch
   tech_kind TEXT NOT NULL,       -- language|framework|cloud|database|tool|ai
-  source    TEXT NOT NULL,       -- rule | llm
-  PRIMARY KEY (job_uuid, tech_slug)
-);
+  source    TEXT NOT NULL,       -- rule | llm（可同 job+slug 共存）
+  PRIMARY KEY (job_uuid, tech_slug, source)
+); -- 实现注：PK 含 source，使 LLM 层可补充规则层未覆盖词，且 llm 积压口径可清零
 CREATE TABLE tech_taxonomy (     -- 别名归一：golang→go, k8s→kubernetes, gcp→google-cloud
   alias TEXT PRIMARY KEY, tech_slug TEXT NOT NULL, tech_kind TEXT NOT NULL
 );
