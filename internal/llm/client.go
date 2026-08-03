@@ -59,6 +59,23 @@ type OpenAIExtractor struct {
 	Client     *http.Client
 	// Timeout for one call. Zero means DefaultTimeout.
 	Timeout time.Duration
+	// DisableThinking sends chat_template_kwargs {"thinking": false}, which stops
+	// a reasoning model emitting its chain of thought.
+	//
+	// Measured on DGX deepseek-v4-flash over 4 real postings: 1322/2019/175/451
+	// completion tokens with reasoning vs 82/55/54/45 without, and 60.5s vs 3.2s
+	// average latency — 18.8x faster, because reasoning is ~95% of the output.
+	//
+	// The trade is small but real: on 2 of those 4 the taxonomy-mapped job_tech was
+	// identical, and the two differences were single-term and went both ways (one
+	// run found an mssql that reasoning missed, the other dropped a sql). Raw
+	// output does get looser ("ship", "hats" from "wear many hats"), but
+	// Enricher.writeResult maps every term through the tech_taxonomy allowlist, so
+	// junk lands in unmapped_tech rather than job_tech.
+	//
+	// Default off: it is meant for burning down a large backlog, not for the
+	// steady-state daily volume where the extra precision is affordable.
+	DisableThinking bool
 }
 
 // DefaultTimeout is the per-call budget when none is set.
@@ -86,6 +103,12 @@ func (e *OpenAIExtractor) Extract(ctx context.Context, title, desc string) (Resu
 			{"role": "user", "content": "TITLE: " + title + "\n\nDESCRIPTION:\n" + desc},
 		},
 		"temperature": 0,
+	}
+	// Only sent when explicitly disabling, so the default request body is
+	// unchanged — chat_template_kwargs is a vLLM/template-specific field and a
+	// gateway or a model without that template would reject it.
+	if e.DisableThinking {
+		payload["chat_template_kwargs"] = map[string]any{"thinking": false}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

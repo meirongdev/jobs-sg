@@ -81,16 +81,32 @@ func main() {
 				slog.Warn("ignoring invalid LLM_TIMEOUT", "value", v)
 			}
 		}
+		// LLM_THINKING=false stops a reasoning model emitting its chain of thought:
+		// ~19x faster because reasoning is ~95% of the output tokens, at the cost of
+		// slightly noisier per-job tags. Intended for burning down a large backlog;
+		// default (unset/true) keeps the request body unchanged.
+		disableThinking := false
+		if v := strings.TrimSpace(os.Getenv("LLM_THINKING")); v != "" {
+			if b, err := strconv.ParseBool(v); err == nil {
+				disableThinking = !b
+			} else {
+				slog.Warn("ignoring invalid LLM_THINKING (want true/false)", "value", v)
+			}
+		}
 		var chain []llm.Extractor
 		for _, m := range modelChain {
-			chain = append(chain, &llm.OpenAIExtractor{BaseURL: baseURL, VirtualKey: vk, Model: m, Timeout: timeout})
+			chain = append(chain, &llm.OpenAIExtractor{
+				BaseURL: baseURL, VirtualKey: vk, Model: m,
+				Timeout: timeout, DisableThinking: disableThinking,
+			})
 		}
 		extractor = llm.Chain{Extractors: chain}
 		eff := timeout
 		if eff <= 0 {
 			eff = llm.DefaultTimeout
 		}
-		slog.Info("llm enabled", "base_url", baseURL, "models", modelChain, "timeout", eff.String())
+		slog.Info("llm enabled", "base_url", baseURL, "models", modelChain,
+			"timeout", eff.String(), "thinking", !disableThinking)
 	} else {
 		slog.Info("LLM_BASE_URL unset -> rule-only mode")
 	}
