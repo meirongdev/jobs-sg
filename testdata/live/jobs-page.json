@@ -1,0 +1,886 @@
+{
+ "results": [
+  {
+   "uuid": "55f53a862881f3857b56c775742df491",
+   "sourceCode": "Employer Portal",
+   "title": "Occupational Therapist",
+   "description": "<p>You will work closely with the multidisciplinary healthcare team to provide patients with a seamless delivery of care which is of high-quality, safe and cost-efficient. You will provide occupational therapy services to patients for their optimal recovery and you will also educate their caregivers about condition and care. You will manage a team and be in-charge of developing the team’s competencies and distribution of workload.</p>\n<ul>\n  <li>Diploma* in Occupational Therapy or Bachelor/Master in Occupational Therapy [* A-level entry diploma accredited by the World Federation of Occupational Therapy (WFOT)]</li>\n  <li>Full/ Conditional registration with the Allied Health Professions Council</li>\n  <li>Able to work well independently and in groups</li>\n  <li>Good interpersonal and communication skills</li>\n</ul>",
+   "minimumYearsExperience": 1,
+   "shiftPattern": null,
+   "schemes": [
+    {
+     "expiryDate": "2031-12-31",
+     "startDate": "2024-02-01",
+     "scheme": {
+      "id": 2,
+      "scheme": "Career Conversion Programme",
+      "_links": {
+       "self": {
+        "href": "https://api.mycareersfuture.gov.sg/v2/schemes/2"
+       },
+       "subSchemes": {
+        "href": "https://api.mycareersfuture.gov.sg/v2/schemes/2/subSchemes"
+       }
+      }
+     },
+     "subScheme": {
+      "id": 207,
+      "schemeId": 2,
+      "programme": "CCP for Allied Health Professionals",
+      "_links": {
+       "self": {
+        "href": "https://api.mycareersfuture.gov.sg/v2/schemes/2/subSchemes/207"
+       }
+      }
+     }
+    }
+   ],
+   "skills": [
+    {
+     "skill": "Quality Improvement",
+     "uuid": "4878c13f97a57cf6c56adfe645e0f537",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Interpersonal Skills",
+     "uuid": "49c78c64822033388a8412b58f2ed113",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Treatment",
+     "uuid": "4c4ac06fd21d631f7c21330fa8027002",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Healthcare",
+     "uuid": "4ee2a6c7bb7c40af94c5a15dbf7eb673",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Administration",
+     "uuid": "7258e7251413465e0a3eb58094430bde",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Occupational Therapy",
+     "uuid": "aa4990ad9c87213ee7b8fcd2013c5753",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Nursing",
+     "uuid": "c1311fa3447790f02b8e9181846c2205",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Team Player",
+     "uuid": "cea2f400864dc5282d8a0af84aa8a100",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Rehabilitation",
+     "uuid": "e765619294e2183b066875df4954d66e",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Able To Work Independently",
+     "uuid": "f3003179e62d8d52170ad7ba00881f2e",
+     "confidence": null,
+     "isKeySkill": false
+    }
+   ],
+   "flexibleWorkArrangements": [],
+   "otherRequirements": null,
+   "ssocCode": "22680",
+   "occupationId": "OCC006646",
+   "ssocVersion": "2020v3",
+   "workingHours": null,
+   "numberOfVacancies": 4,
+   "psdUrl": null,
+   "categories": [
+    {
+     "id": 27,
+     "category": "Medical / Therapy Services"
+    }
+   ],
+   "employmentTypes": [
+    {
+     "id": 7,
+     "employmentType": "Permanent"
+    },
+    {
+     "id": 8,
+     "employmentType": "Full Time"
+    }
+   ],
+   "positionLevels": [
+    {
+     "id": 7,
+     "position": "Professional"
+    }
+   ],
+   "status": {
+    "id": 102,
+    "jobStatus": "Open"
+   },
+   "ssecEqa": "70",
+   "ssecFos": "0892",
+   "postedCompany": {
+    "uen": "53351398K",
+    "description": "<p><em><strong>About SingHealth Community Hospitals</strong></em></p>\n<p><em>SingHealth Community Hospitals (SCH) comprises of Sengkang Community Hospital and Outram Community Hospital. Being Singapore's only cluster of community hospitals, we aim to deliver a seamless and integrated care path for patients requiring sub-acute care,rehabilitation and palliative care.</em></p>\n<p><br></p>\n<p><em>Our community hospitals are poised to set standards incare, exchange best practices and strengthen collaborations with our healthcare and community partners.</em></p>\n<p><br></p>\n<p><em><strong>A Member of SingHealth Regional Health System</strong></em></p>\n<p><em>SCH is under the </em><a href=\"https://cms-singhealth-new.sppub/rhs\"><em>SingHealth Regional Health System (RHS)</em></a><em> and is supported by the medical expertise and research capabilities of the SingHealth-Duke NUS Academic Medical Centre.</em></p>",
+    "name": "SINGHEALTH COMMUNITY HOSPITALS",
+    "ssicCode": "86102",
+    "employeeCount": null,
+    "companyUrl": null,
+    "lastSyncDate": "2026-08-03T01:44:30.000Z",
+    "ssicCode2020": "86102",
+    "_links": {
+     "self": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/53351398K"
+     },
+     "jobs": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/53351398K/jobs"
+     },
+     "addresses": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/53351398K/addresses"
+     },
+     "schemes": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/53351398K/schemes"
+     }
+    },
+    "logoFileName": "7557d4e6887f35da1236336e6974c24f/singhealth-community-hospitals.jpg",
+    "logoUploadPath": "https://static.mycareersfuture.gov.sg/images/company/logos/7557d4e6887f35da1236336e6974c24f/singhealth-community-hospitals.jpg",
+    "responsiveEmployer": {
+     "isResponsive": true
+    }
+   },
+   "hiringCompany": null,
+   "address": {
+    "overseasCountry": null,
+    "foreignAddress1": null,
+    "foreignAddress2": null,
+    "block": "10",
+    "street": "HOSPITAL BOULEVARD",
+    "floor": null,
+    "unit": null,
+    "building": "OUTRAM COMMUNITY HOSPITAL",
+    "postalCode": "168582",
+    "isOverseas": false,
+    "districts": [
+     {
+      "id": 3,
+      "location": "D03 Queenstown, Bukit Merah, Tiong Bahru",
+      "region": "Central",
+      "sectors": [
+       "14",
+       "15",
+       "16"
+      ],
+      "regionId": "Central"
+     }
+    ]
+   },
+   "metadata": {
+    "jobPostId": "MCF-2026-1334440",
+    "deletedAt": null,
+    "createdAt": "2026-08-03T09:45:35.000Z",
+    "updatedAt": "2026-08-03T09:45:36.000Z",
+    "editCount": 0,
+    "repostCount": 0,
+    "totalNumberOfView": 0,
+    "newPostingDate": "2026-08-03",
+    "originalPostingDate": "2026-08-03",
+    "expiryDate": "2026-09-02",
+    "totalNumberJobApplication": 0,
+    "isJdEnhanced": false,
+    "isPostedOnBehalf": false,
+    "isHideSalary": false,
+    "isHideCompanyAddress": false,
+    "isHideHiringEmployerName": false,
+    "isHideEmployerName": false,
+    "jobDetailsUrl": "https://www.mycareersfuture.gov.sg/job/medical/occupational-therapist-singhealth-community-hospitals-55f53a862881f3857b56c775742df491",
+    "matchedSkillsScore": null
+   },
+   "salary": {
+    "maximum": 6000,
+    "minimum": 3200,
+    "type": {
+     "id": 4,
+     "salaryType": "Monthly"
+    }
+   },
+   "_links": {
+    "self": {
+     "href": "https://api.mycareersfuture.gov.sg/v2/jobs/55f53a862881f3857b56c775742df491"
+    },
+    "screeningQuestions": {
+     "href": "https://api.mycareersfuture.gov.sg/v2/jobs/55f53a862881f3857b56c775742df491/screening-questions"
+    }
+   },
+   "jobTitles": []
+  },
+  {
+   "uuid": "a4dc9022859bc6420e8a3130cf08e590",
+   "sourceCode": "Employer Portal",
+   "title": "Funeral Assistant - Driver (A22059)",
+   "description": "<p>Working location: Gambas Crescent</p><p>Working hours: 8am to 6pm (every 5 days off 1 day)</p><p>Salary: $2500 + VB + Year End bonus + Sales bonuses (Gross salary: <strong>$3000 to $4000</strong> on average)</p><p><u><strong>Weekends and PH standby out of office if on shift</strong></u></p><p><strong>JOB DESCRIPTION</strong></p><ul><li>Collection and transportation of deceased</li><li>Preparation of coffin and encoffining</li><li>Loading and unloading of heavy items / coffins</li><li>Performing a variety of tasks during the funeral process, such as providing assistance during funeral rites, closing of casket, guiding the bereaved family etc.</li><li>Driving of funeral hearse</li><li>Assist funeral advisors during the funeral process to ensure smooth proceedings</li><li>Maintaining tidiness of company vehicles and premises</li><li>Other ad hoc tasks as required</li></ul><p><strong>JOB REQUIREMENTS</strong></p><ul><li>Possess Class 3 / 3A driving license</li><li>Able to lift heavy weight (up to 25kg) and perform physical work</li><li>Computer literate</li><li>Able to do shift work and work overtime when needed</li><li>Candidates should be comfortable with holding joss sticks, close contact with the deceased etc.</li><li>Ability to show compassion when dealing with bereaved families</li></ul><p><strong>EA License Number: 22C1278</strong></p><p><strong>Disclaimer:</strong></p><p>By applying, you consent to being contacted for current or future job opportunities. All personal data will be managed in line with Singapore’s PDPA and used solely for recruitment purposes.</p>",
+   "minimumYearsExperience": 1,
+   "shiftPattern": null,
+   "schemes": [],
+   "skills": [
+    {
+     "skill": "Interpersonal Skills",
+     "uuid": "49c78c64822033388a8412b58f2ed113",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Physical Fitness",
+     "uuid": "5404042d7cdf4eae13c5053f67e59284",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Unloading",
+     "uuid": "62168dff2fc801c4ff6ee24619bc314c",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Weight",
+     "uuid": "8c489d0946f66d17d73f26366a4bf620",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Heavy Lifting",
+     "uuid": "a3e3360cdaa9372cbffe1d2807741ce0",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Driving License",
+     "uuid": "a4592ee426ef7fb55c2167fef2f85796",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Class 3 Driving License",
+     "uuid": "a8de4c0169cdf1e2b47fd09732d2ffdb",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Time Management",
+     "uuid": "abbac76b68baaa970e22dd97b4392451",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Vehicle Maintenance",
+     "uuid": "d3a907234e76f86ba22b9551df82fd49",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Customer Service",
+     "uuid": "d5552e0564007d93ff5937a9cb3bc491",
+     "confidence": null,
+     "isKeySkill": false
+    }
+   ],
+   "flexibleWorkArrangements": [
+    {
+     "id": 6,
+     "flexibleWorkArrangement": "Creative Scheduling"
+    }
+   ],
+   "otherRequirements": null,
+   "ssocCode": "51931",
+   "occupationId": "OCC060624",
+   "ssocVersion": "2020v3",
+   "workingHours": null,
+   "numberOfVacancies": 1,
+   "psdUrl": null,
+   "categories": [
+    {
+     "id": 8,
+     "category": "Customer Service"
+    },
+    {
+     "id": 24,
+     "category": "Logistics / Supply Chain"
+    },
+    {
+     "id": 29,
+     "category": "Professional Services"
+    },
+    {
+     "id": 41,
+     "category": "Others"
+    }
+   ],
+   "employmentTypes": [
+    {
+     "id": 7,
+     "employmentType": "Permanent"
+    },
+    {
+     "id": 8,
+     "employmentType": "Full Time"
+    }
+   ],
+   "positionLevels": [
+    {
+     "id": 12,
+     "position": "Fresh/entry level"
+    }
+   ],
+   "status": {
+    "id": 102,
+    "jobStatus": "Open"
+   },
+   "ssecEqa": "31",
+   "ssecFos": null,
+   "postedCompany": {
+    "uen": "202231751D",
+    "description": "<p>EQUE is a professional staffing and talent solutions firm dedicated to connecting businesses with capable, motivated individuals who can drive meaningful results. We believe that a candidate’s potential goes far beyond what is written on paper. By evaluating real competencies, attitude, adaptability, and cultural alignment, we identify talent who are genuinely able to perform and excel in the roles they take on.<br>\n<br>\nOur services support companies in strengthening their hiring processes, improving workforce quality, and building resilient teams. We partner closely with employers to understand their operational priorities, challenges, and long-term vision, allowing us to recommend candidates who are not only qualified, but who can grow with the organization.<br>\n<br>\nFor job seekers, we provide guidance, feedback, and access to opportunities that align with their skills, career goals, and personal values. We aim to be more than just a placement agency — we support individuals throughout their career journey, helping them make informed decisions and secure meaningful employment.<br>\n<br>\nAt EQUE, we are committed to ethical practices, transparent communications, and long-term relationship building. Our goal is to create a recruitment experience that is reliable, efficient, and focused on quality results. Whether we are helping companies hire stronger or supporting candidates in achieving their next breakthrough, EQUE remains driven by one purpose: bridging the gap between talent and opportunity.</p>",
+    "name": "EQUE PTE. LTD.",
+    "ssicCode": "78104",
+    "employeeCount": 20,
+    "companyUrl": "www.eque.com.sg",
+    "lastSyncDate": "2026-08-03T02:29:40.000Z",
+    "ssicCode2020": "78104",
+    "_links": {
+     "self": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/202231751D"
+     },
+     "jobs": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/202231751D/jobs"
+     },
+     "addresses": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/202231751D/addresses"
+     },
+     "schemes": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/202231751D/schemes"
+     }
+    },
+    "logoFileName": "eae9a5fa188ab85ee257861021c7ab4e/eque.jpg",
+    "logoUploadPath": "https://static.mycareersfuture.gov.sg/images/company/logos/eae9a5fa188ab85ee257861021c7ab4e/eque.jpg",
+    "responsiveEmployer": {
+     "isResponsive": true
+    }
+   },
+   "hiringCompany": null,
+   "address": {
+    "overseasCountry": null,
+    "foreignAddress1": null,
+    "foreignAddress2": null,
+    "block": "50 ",
+    "street": "Gambas Crescent",
+    "floor": null,
+    "unit": null,
+    "building": "",
+    "postalCode": "757022",
+    "isOverseas": false,
+    "districts": [
+     {
+      "id": 27,
+      "location": "D27 Sembawang, Yishun",
+      "region": "North",
+      "sectors": [
+       "75",
+       "76"
+      ],
+      "regionId": "North"
+     }
+    ],
+    "lat": 1.4419584478037,
+    "lng": 103.81789398539
+   },
+   "metadata": {
+    "jobPostId": "MCF-2026-1334479",
+    "deletedAt": null,
+    "createdAt": "2026-08-03T09:47:31.000Z",
+    "updatedAt": "2026-08-03T09:47:30.000Z",
+    "editCount": 0,
+    "repostCount": 0,
+    "totalNumberOfView": 0,
+    "newPostingDate": "2026-08-03",
+    "originalPostingDate": "2026-08-03",
+    "expiryDate": "2026-09-02",
+    "totalNumberJobApplication": 0,
+    "isJdEnhanced": false,
+    "isPostedOnBehalf": false,
+    "isHideSalary": false,
+    "isHideCompanyAddress": false,
+    "isHideHiringEmployerName": false,
+    "isHideEmployerName": false,
+    "jobDetailsUrl": "https://www.mycareersfuture.gov.sg/job/customer-service/funeral-assistant-driver-eque-a4dc9022859bc6420e8a3130cf08e590",
+    "matchedSkillsScore": null
+   },
+   "salary": {
+    "maximum": 4500,
+    "minimum": 2500,
+    "type": {
+     "id": 4,
+     "salaryType": "Monthly"
+    }
+   },
+   "_links": {
+    "self": {
+     "href": "https://api.mycareersfuture.gov.sg/v2/jobs/a4dc9022859bc6420e8a3130cf08e590"
+    },
+    "screeningQuestions": {
+     "href": "https://api.mycareersfuture.gov.sg/v2/jobs/a4dc9022859bc6420e8a3130cf08e590/screening-questions"
+    }
+   },
+   "jobTitles": []
+  },
+  {
+   "uuid": "d7e42debc8fb3455263b747b8217d2d8",
+   "sourceCode": "Employer Portal",
+   "title": "SUPERVISOR",
+   "description": "<p>· Perform administrative tasks under the guidance of the manager.</p><p>· Coordinate daily customer service operations (e.g.  orders and payments)</p><p>· Monitor and maintain store inventory</p><p>· Supervise and motivate staff to perform their best</p><p>· Monitor operating costs, budgets and resources</p><p>MOM LICENSE NO.:16C7994</p><p>EA REG. ID: R1983060</p>",
+   "minimumYearsExperience": 2,
+   "shiftPattern": null,
+   "schemes": [],
+   "skills": [
+    {
+     "skill": "Customer Service Processes",
+     "uuid": "01309405bde313151feebd165d86f178",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Microsoft Excel",
+     "uuid": "28392dee72b88a917a72357aea20a3a5",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Administrative Work",
+     "uuid": "426f2e6210dd458d29478045ab400e8f",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Supervisory Skills",
+     "uuid": "5c9589d2741ef86c976c7e2ba1c10001",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Purchasing",
+     "uuid": "5f95f5c48171ba26e9f8aa9d8c7ce6c4",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Motivate Staff",
+     "uuid": "777f74010bb685fd34b9598ca10754e0",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "payment orders",
+     "uuid": "a10f9e75479d127a2c0ffa7a9de3a1fe",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Emotional Intelligence",
+     "uuid": "ae0bc5d28c185ff5ac023030334c6f8a",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Keeping Inventory",
+     "uuid": "ca14e20c021bd7247bdfe32e67ca5f58",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Scheduling",
+     "uuid": "ddfdc2a2b4c277158589a9f95fa2fbd8",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "meet budgets",
+     "uuid": "fbdcc498132b6c40da72556b2b198f7f",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "monitored costs",
+     "uuid": "fe882d4bdd4f1ac71620adfe26ee1a5b",
+     "confidence": null,
+     "isKeySkill": false
+    }
+   ],
+   "flexibleWorkArrangements": [],
+   "otherRequirements": null,
+   "ssocCode": "75000",
+   "occupationId": "OCC011137",
+   "ssocVersion": "2020v3",
+   "workingHours": null,
+   "numberOfVacancies": 2,
+   "psdUrl": null,
+   "categories": [
+    {
+     "id": 16,
+     "category": "General Management"
+    }
+   ],
+   "employmentTypes": [
+    {
+     "id": 8,
+     "employmentType": "Full Time"
+    }
+   ],
+   "positionLevels": [
+    {
+     "id": 3,
+     "position": "Manager"
+    }
+   ],
+   "status": {
+    "id": 102,
+    "jobStatus": "Open"
+   },
+   "ssecEqa": "23",
+   "ssecFos": null,
+   "postedCompany": {
+    "uen": "201605436H",
+    "description": "<p>We are a local based Employment Agency focusing on our clients' recruitment needs for both local and foreign talents. </p>\n",
+    "name": "SG JOBS PTE. LTD.",
+    "ssicCode": "78104",
+    "employeeCount": null,
+    "companyUrl": null,
+    "lastSyncDate": "2026-08-03T09:49:21.000Z",
+    "ssicCode2020": "78104",
+    "_links": {
+     "self": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/201605436H"
+     },
+     "jobs": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/201605436H/jobs"
+     },
+     "addresses": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/201605436H/addresses"
+     },
+     "schemes": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/201605436H/schemes"
+     }
+    },
+    "logoFileName": null,
+    "logoUploadPath": null,
+    "responsiveEmployer": {
+     "isResponsive": false
+    }
+   },
+   "hiringCompany": {
+    "uen": "202040716C",
+    "description": null,
+    "name": "SUNSHINE PLAYLAND PTE. LTD.",
+    "ssicCode": null,
+    "employeeCount": null,
+    "companyUrl": null,
+    "lastSyncDate": "2026-08-03T09:50:38.000Z",
+    "ssicCode2020": "42909",
+    "_links": {
+     "self": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/202040716C"
+     },
+     "jobs": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/202040716C/jobs"
+     },
+     "addresses": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/202040716C/addresses"
+     },
+     "schemes": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/202040716C/schemes"
+     }
+    },
+    "logoFileName": null,
+    "logoUploadPath": null
+   },
+   "address": {
+    "overseasCountry": null,
+    "foreignAddress1": null,
+    "foreignAddress2": null,
+    "block": null,
+    "street": null,
+    "floor": null,
+    "unit": null,
+    "building": null,
+    "postalCode": null,
+    "isOverseas": false,
+    "districts": [
+     {
+      "id": 998,
+      "location": "Islandwide",
+      "region": "Islandwide",
+      "sectors": [],
+      "regionId": "Islandwide"
+     }
+    ]
+   },
+   "metadata": {
+    "jobPostId": "MCF-2026-1334588",
+    "deletedAt": null,
+    "createdAt": "2026-08-03T09:51:05.000Z",
+    "updatedAt": "2026-08-03T09:51:05.000Z",
+    "editCount": 0,
+    "repostCount": 0,
+    "totalNumberOfView": 0,
+    "newPostingDate": "2026-08-03",
+    "originalPostingDate": "2026-08-03",
+    "expiryDate": "2026-08-17",
+    "totalNumberJobApplication": 0,
+    "isJdEnhanced": false,
+    "isPostedOnBehalf": true,
+    "isHideSalary": false,
+    "isHideCompanyAddress": false,
+    "isHideHiringEmployerName": false,
+    "isHideEmployerName": false,
+    "jobDetailsUrl": "https://www.mycareersfuture.gov.sg/job/general-management/supervisor-sunshine-playland-d7e42debc8fb3455263b747b8217d2d8",
+    "matchedSkillsScore": null
+   },
+   "salary": {
+    "maximum": 5000,
+    "minimum": 3200,
+    "type": {
+     "id": 4,
+     "salaryType": "Monthly"
+    }
+   },
+   "_links": {
+    "self": {
+     "href": "https://api.mycareersfuture.gov.sg/v2/jobs/d7e42debc8fb3455263b747b8217d2d8"
+    },
+    "screeningQuestions": {
+     "href": "https://api.mycareersfuture.gov.sg/v2/jobs/d7e42debc8fb3455263b747b8217d2d8/screening-questions"
+    }
+   },
+   "jobTitles": []
+  },
+  {
+   "uuid": "57a9af2ec3c8c603804efdc0b2a58d0b",
+   "sourceCode": "Employer Portal",
+   "title": "SAP Employee Central Payroll (EC Payroll) Consultant",
+   "description": "<p><strong>About Us:</strong><br>\nFrom business process re-engineering to global business expansion for Japanese corporations, Abeam Consulting has served our clients through more than 40 years of growth. With our vision of being the No. 1 global consulting firm from Asia, ABeam Consulting helps our clients take on the challenge of business transformation. With 4,400 consultants in Japan, and 3,100 in overseas offices concentrated in Asia, our 7,500 consultants and global alliance partners provide truly comprehensive services.<br>\n<br>\n<strong>Position Overview:</strong></p>\n<p>We are seeking an experienced <strong>SAP Employee Central Payroll (EC Payroll) Consultant / Solution Architect</strong> to lead and deliver multi-country payroll implementations. This role goes beyond configuration—it requires end-to-end solution ownership, client-facing leadership, coordination of offshore teams, people management, and support in pre-sales initiatives.</p>\n<p>You will play a key role in shaping payroll solutions, ensuring best practices, mentoring consultants, and enabling client success across multiple projects.</p>\n<p><strong>Core Responsibilities:</strong></p>\n<ul>\n  <li>Lead and participate in the implementation of SAP EC Payroll for clients.</li>\n  <li>Conduct thorough business process analysis to understand client needs and map them to the EC Payroll system.</li>\n  <li>Configure EC Payroll settings for payroll elements, deductions, and statutory contributions.</li>\n  <li>Integrate EC Payroll with SAP SuccessFactors, S/4HANA, and other HR/finance systems.</li>\n  <li>Develop and maintain test plans; conduct end-to-end payroll testing to ensure accuracy.</li>\n  <li>Provide knowledge transfer and training to client HR/Payroll teams.</li>\n  <li>Stay up to date on the latest SAP EC Payroll functionalities and legislative changes in Singapore and China.</li>\n  <li>Document processes and procedures for system support and handover.</li>\n</ul>\n<p><strong>Expanded Solution Architect Responsibilities:</strong></p>\n<ul>\n  <li>Multi-Project Leadership: Oversee multiple payroll implementation projects in Singapore and across the region, ensuring consistency and quality of delivery.</li>\n  <li>Client Engagement: Act as the key functional advisor and trusted partner to client HR and IT leadership, managing expectations and addressing escalations.</li>\n  <li>Offshore Team Coordination: Guide and coordinate offshore payroll consultants and technical teams to ensure seamless execution and timely delivery.</li>\n  <li>People Management:</li>\n  <li>Lead a team of payroll consultants, managing performance, growth, and career progression.</li>\n  <li>Ensure training, certification, and continuous learning opportunities are available.</li>\n  <li>Act as a mentor and empathetic leader, fostering a collaborative and supportive team culture.</li>\n  <li>Solution Design &amp; Quality Assurance: Review solution design and configuration delivered by consultants to ensure compliance with best practices, statutory requirements, and project scope.</li>\n  <li>Pre-Sales &amp; Business Development:</li>\n  <li>Contribute to proposals, RFPs, and client presentations.</li>\n  <li>Provide thought leadership in payroll transformation discussions with prospects.</li>\n  <li>Identify opportunities to upsell value-added payroll solutions.</li>\n  <li>Innovation &amp; Best Practices: Drive adoption of automation, tools, and accelerators to improve payroll efficiency and project quality.</li>\n</ul>\n<p><strong>Requirements:</strong></p>\n<ul>\n  <li>Minimum 10 years’ proven experience as an SAP EC Payroll Consultant, with at least 2 years in a Solution Architect or Lead role.</li>\n  <li>Strong understanding of payroll processes and statutory compliance in Singapore (China knowledge preferred).</li>\n  <li>Hands-on experience in SAP EC Payroll configuration and integration.</li>\n  <li>Experience working in consulting environments with multiple client engagements.</li>\n  <li>Strong leadership, mentoring, and people management skills.</li>\n  <li>Excellent communication and interpersonal skills in English; Mandarin proficiency advantageous to liaise with stakeholders.</li>\n  <li>Ability to manage multiple projects simultaneously under tight timelines.</li>\n  <li>SAP Payroll or SAP SuccessFactors certification is a plus.</li>\n  <li>Experience with SAP HCM Payroll (on-premise) and other HR modules is a plus.</li>\n  <li>Exposure to project management methodologies (e.g., SAP Activate) is a plus.</li>\n  <li>Pre-sales or solutioning experience in HR technology projects is a plus.</li>\n</ul>\n<p><u><strong>Why Join Us</strong></u><br>\nAt ABeam Consulting, we place a strong emphasis on collaboration, and helping our employees grow and develop their skills, offering a supportive and empowering work environment. With a presence in multiple countries and a diverse range of clients, Abeam Consulting offers an exciting and dynamic workplace for individuals looking to build a career in consulting. Abeam Consulting has also recently joined SAP’s regional strategic partner initiative as their first regional partner in the region and has also been recognized by UiPath as a Diamond Partner in providing RPA solutions. With such accolades, we aim to continue driving enterprise and digital transformation initiatives in order to transform the way people work and communicate in the digital age. In addition, our industry team is working tirelessly in order to bring more solutions to the banking and finance sector.<br>\n<br>\nWe regret only shortlisted candidates will be notified.</p>",
+   "minimumYearsExperience": 10,
+   "shiftPattern": null,
+   "schemes": [],
+   "skills": [
+    {
+     "skill": "Solutioning",
+     "uuid": "3f1f45a5977b97a22de4a6cbb239b0a9",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Architect",
+     "uuid": "4bb5da084da7cbef67d5f21bcb933af7",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Business Process Analysis",
+     "uuid": "5a60a049bb618cc0018fdd49215dfe66",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Project Quality",
+     "uuid": "63ca84405c8a223a04b8feb2e43c157a",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Automation Tools",
+     "uuid": "6610f9d34d0252187120a02b66c88b5b",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Thought Leadership",
+     "uuid": "8c509ce7abde67e7129dbdea818da1d0",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "SAP",
+     "uuid": "999bc6b18351bbe817d26f559ba408ae",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Team Coordination",
+     "uuid": "9f5dd42e3a1dc5f794765720c7cc4208",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "Japanese",
+     "uuid": "f32ced6a9ba164c4b3c047fd1d7c882e",
+     "confidence": null,
+     "isKeySkill": false
+    },
+    {
+     "skill": "People Management",
+     "uuid": "f348ff6bfac32a0d81f92e84fbf3691f",
+     "confidence": null,
+     "isKeySkill": false
+    }
+   ],
+   "flexibleWorkArrangements": [],
+   "otherRequirements": null,
+   "ssocCode": "25121",
+   "occupationId": "OCC013772",
+   "ssocVersion": "2020v3",
+   "workingHours": null,
+   "numberOfVacancies": 2,
+   "psdUrl": null,
+   "categories": [
+    {
+     "id": 7,
+     "category": "Consulting"
+    }
+   ],
+   "employmentTypes": [
+    {
+     "id": 3,
+     "employmentType": "Contract"
+    }
+   ],
+   "positionLevels": [
+    {
+     "id": 3,
+     "position": "Manager"
+    }
+   ],
+   "status": {
+    "id": 102,
+    "jobStatus": "Open"
+   },
+   "ssecEqa": "70",
+   "ssecFos": "0919",
+   "postedCompany": {
+    "uen": "200503476W",
+    "description": "<p>ABEAM CONSULTING (SINGAPORE) PTE. LTD.</p>  <p><strong>ABeam Consulting</strong> is a global management consulting firm with headquarters in Japan and with more than 4400 professionals in more than 11 countries and serve over 700 clients throughout Asia, the Americas, and Europe, providing business performance consulting services, integrating business strategy, business process design, information technology enablement, outsourcing and organizational performance and program / project management solutions to our clients. <br /> <br /> ABeam retains a powerful base of professional talent coupled with a global reach which we are recruiting top notch resources for. We currently have the following permanent positions:</p> ",
+    "name": "ABEAM CONSULTING (SINGAPORE) PTE. LTD.",
+    "ssicCode": "62021",
+    "employeeCount": null,
+    "companyUrl": null,
+    "lastSyncDate": "2026-08-03T02:16:34.000Z",
+    "ssicCode2020": "62021",
+    "_links": {
+     "self": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/200503476W"
+     },
+     "jobs": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/200503476W/jobs"
+     },
+     "addresses": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/200503476W/addresses"
+     },
+     "schemes": {
+      "href": "https://api.mycareersfuture.gov.sg/v2/companies/200503476W/schemes"
+     }
+    },
+    "logoFileName": "4f1206e50a1c5c87ca6809e832aa70c9/abeam-consulting.jpg",
+    "logoUploadPath": "https://static.mycareersfuture.gov.sg/images/company/logos/4f1206e50a1c5c87ca6809e832aa70c9/abeam-consulting.jpg",
+    "responsiveEmployer": {
+     "isResponsive": true
+    }
+   },
+   "hiringCompany": null,
+   "address": {
+    "overseasCountry": null,
+    "foreignAddress1": null,
+    "foreignAddress2": null,
+    "block": null,
+    "street": null,
+    "floor": null,
+    "unit": null,
+    "building": null,
+    "postalCode": null,
+    "isOverseas": false,
+    "districts": [
+     {
+      "id": 998,
+      "location": "Islandwide",
+      "region": "Islandwide",
+      "sectors": [],
+      "regionId": "Islandwide"
+     }
+    ]
+   },
+   "metadata": {
+    "jobPostId": "MCF-2026-1334587",
+    "deletedAt": null,
+    "createdAt": "2026-08-03T09:51:04.000Z",
+    "updatedAt": "2026-08-03T09:51:04.000Z",
+    "editCount": 0,
+    "repostCount": 0,
+    "totalNumberOfView": 0,
+    "newPostingDate": "2026-08-03",
+    "originalPostingDate": "2026-08-03",
+    "expiryDate": "2026-09-02",
+    "totalNumberJobApplication": 0,
+    "isJdEnhanced": false,
+    "isPostedOnBehalf": false,
+    "isHideSalary": false,
+    "isHideCompanyAddress": false,
+    "isHideHiringEmployerName": false,
+    "isHideEmployerName": false,
+    "jobDetailsUrl": "https://www.mycareersfuture.gov.sg/job/consulting/sap-employee-central-payroll-consultant-abeam-consulting-57a9af2ec3c8c603804efdc0b2a58d0b",
+    "matchedSkillsScore": null
+   },
+   "salary": {
+    "maximum": 8000,
+    "minimum": 4500,
+    "type": {
+     "id": 4,
+     "salaryType": "Monthly"
+    }
+   },
+   "_links": {
+    "self": {
+     "href": "https://api.mycareersfuture.gov.sg/v2/jobs/57a9af2ec3c8c603804efdc0b2a58d0b"
+    },
+    "screeningQuestions": {
+     "href": "https://api.mycareersfuture.gov.sg/v2/jobs/57a9af2ec3c8c603804efdc0b2a58d0b/screening-questions"
+    }
+   },
+   "jobTitles": []
+  }
+ ],
+ "total": 4,
+ "_links": {
+  "next": {
+   "href": "https://api.mycareersfuture.gov.sg/v2/jobs?limit=100&page=1&sortBy=new_posting_date&salary=0"
+  },
+  "self": {
+   "href": "https://api.mycareersfuture.gov.sg/v2/jobs?limit=100&sortBy=new_posting_date&salary=0"
+  },
+  "first": {
+   "href": "https://api.mycareersfuture.gov.sg/v2/jobs?limit=100&sortBy=new_posting_date&salary=0"
+  },
+  "last": {
+   "href": "https://api.mycareersfuture.gov.sg/v2/jobs?limit=100&page=877&sortBy=new_posting_date&salary=0"
+  }
+ },
+ "countWithoutFilters": 4
+}

@@ -102,7 +102,7 @@ func TestSeniorityVoteNoTitle(t *testing.T) {
 func TestWorkModeRemoteAndInferred(t *testing.T) {
 	cl := New(nil)
 	j := jobWithSSOC("25121")
-	j.FlexibleWorkArrangements = []string{"remote"}
+	j.FlexibleWorkArrangements = []mcf.FlexibleWorkArrangement{{FlexibleWorkArrangement: "remote"}}
 	res := cl.Classify(j)
 	if res.WorkMode != "Remote" || res.WorkModeInferred {
 		t.Errorf("work_mode = %s inferred=%v, want Remote/false", res.WorkMode, res.WorkModeInferred)

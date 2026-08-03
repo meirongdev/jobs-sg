@@ -61,7 +61,7 @@ func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawP
 	}
 	empType, cat, posLevel := "", "", ""
 	if len(j.EmploymentTypes) > 0 {
-		empType = j.EmploymentTypes[0]
+		empType = j.EmploymentTypes[0].EmploymentType
 	}
 	if len(j.Categories) > 0 {
 		cat = j.Categories[0].Category
@@ -287,16 +287,16 @@ func salaryMax(s *mcf.Salary) any {
 	return int(s.Maximum)
 }
 func salaryType(s *mcf.Salary) any {
-	if s == nil || s.Type == "" {
+	if s == nil || s.Type.SalaryType == "" {
 		return nil
 	}
-	return s.Type
+	return s.Type.SalaryType
 }
 func firstDistrict(a *mcf.Address) any {
 	if a == nil || len(a.Districts) == 0 {
 		return nil
 	}
-	return a.Districts[0]
+	return a.Districts[0].Location
 }
 func addressString(j mcf.Job, field string) any {
 	if j.Address == nil {

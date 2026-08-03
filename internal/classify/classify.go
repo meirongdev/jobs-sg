@@ -130,7 +130,7 @@ func (c *Classifier) Classify(j mcf.Job) Result {
 	res.RoleFamily = c.roleFamily(j.Title, j.SSOCCode)
 	res.IsSWE = res.IsCandidate && sweFamilies[res.RoleFamily]
 	res.Seniority = Seniority(j.Title, positionLevel(j), years(j))
-	res.WorkMode, res.WorkModeInferred = WorkMode(j.FlexibleWorkArrangements)
+	res.WorkMode, res.WorkModeInferred = WorkMode(j.WorkArrangements())
 	res.CompanyType = CompanyType(j)
 	return res
 }

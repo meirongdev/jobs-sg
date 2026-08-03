@@ -80,14 +80,14 @@ func main() {
 			SSOCVersion:              "SSOC2020",
 			PositionLevels:           []mcf.PositionLevel{{Position: r.posLevel}},
 			MinimumYearsExperience:   intP(r.minYr),
-			Salary:                   &mcf.Salary{Minimum: 3000 + float64(rng.Intn(5000)), Maximum: 6000 + float64(rng.Intn(6000)), Type: "Monthly"},
-			EmploymentTypes:          []string{"Full Time"},
+			Salary:                   &mcf.Salary{Minimum: 3000 + float64(rng.Intn(5000)), Maximum: 6000 + float64(rng.Intn(6000)), Type: mcf.SalaryType{ID: 4, SalaryType: "Monthly"}},
+			EmploymentTypes:          []mcf.EmploymentType{{ID: 8, EmploymentType: "Full Time"}},
 			Categories:               []mcf.Category{{Category: r.category, SubCategory: "Software"}},
-			Schemes:                  []string{},
-			FlexibleWorkArrangements: r.flex,
+			Schemes:                  []mcf.Scheme{},
+			FlexibleWorkArrangements: flexOf(r.flex),
 			Skills:                   []mcf.Skill{{Skill: "Communication", IsKeySkill: false}, {Skill: "Problem solving", IsKeySkill: true}},
 			PostedCompany:            &mcf.PostedCompany{UEN: r.uen, Name: r.company, SSICCode: r.ssic, EmployeeCount: intP(r.emp)},
-			Address:                  &mcf.Address{PostalCode: "018956", Districts: []string{"Central"}, Lat: fp(1.2902), Lng: fp(103.8519), IsOverseas: false},
+			Address:                  &mcf.Address{PostalCode: "018956", Districts: []mcf.District{{ID: 7, Location: "Central", Region: "Central"}}, Lat: fp(1.2902), Lng: fp(103.8519), IsOverseas: false},
 			Status:                   &mcf.JobStatus{JobStatus: "Active"},
 			NumberOfVacancies:        intP(1 + rng.Intn(5)),
 		}
@@ -108,3 +108,12 @@ func main() {
 
 func intP(i int) *int       { return &i }
 func fp(f float64) *float64 { return &f }
+
+// flexOf wraps plain labels in the object shape the live API uses.
+func flexOf(labels []string) []mcf.FlexibleWorkArrangement {
+	out := make([]mcf.FlexibleWorkArrangement, 0, len(labels))
+	for i, l := range labels {
+		out = append(out, mcf.FlexibleWorkArrangement{ID: i + 1, FlexibleWorkArrangement: l})
+	}
+	return out
+}

@@ -14,7 +14,7 @@ import (
 )
 
 func salary(min, max float64, typ string, hidden bool) *mcf.Salary {
-	return &mcf.Salary{Minimum: min, Maximum: max, Type: typ}
+	return &mcf.Salary{Minimum: min, Maximum: max, Type: mcf.SalaryType{SalaryType: typ}}
 }
 
 func seedReportData(t *testing.T, db *store.DB) {
