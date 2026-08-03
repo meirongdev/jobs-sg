@@ -11,7 +11,26 @@
 *.db-wal
 *.db-shm
 
+# go test & profiling output
+coverage.out
+coverage.html
+*.prof
+go.work
+go.work.sum
+
+# secrets & local config (use Vault -> ExternalSecret, see docs/04-operations.md)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+kubeconfig
+*.kubeconfig
+
 # editor/os
 .DS_Store
+._*
 .idea/
 .vscode/
+*.swp
+*~

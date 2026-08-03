@@ -1,0 +1,42 @@
+# EditorConfig — https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# gofmt indents with tabs; 4 columns is the conventional render width
+[*.go]
+indent_style = tab
+indent_size = 4
+
+[go.{mod,sum}]
+indent_style = tab
+indent_size = 4
+
+# recipe lines must start with a real tab
+[{Makefile,*.mk}]
+indent_style = tab
+indent_size = 4
+
+[*.{yaml,yml}]
+indent_size = 2
+
+[*.{json,jsonl}]
+indent_size = 2
+
+[{Dockerfile,.dockerignore,*.sh}]
+indent_size = 2
+
+# two trailing spaces are a hard line break in Markdown
+[*.md]
+trim_trailing_whitespace = false
+
+# byte-exact replay fixtures — the editor must not rewrite them
+[testdata/**]
+insert_final_newline = false
+trim_trailing_whitespace = false
