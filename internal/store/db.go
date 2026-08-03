@@ -17,15 +17,21 @@ type DB struct {
 // Open opens (creating if needed) a SQLite DB at path.
 //
 // DSN uses modernc.org/sqlite _pragma params to enforce the config from
-// docs/03 §1: WAL, busy_timeout=10000, synchronous=NORMAL. foreign_keys=1 so
-// REFERENCES constraints are actually enforced.
+// docs/03 §1: rollback journal (DELETE), busy_timeout=10000, synchronous=NORMAL.
+// foreign_keys=1 so REFERENCES constraints are actually enforced.
+//
+// Rollback journal, not WAL: the web pod mounts /data read-only, and WAL needs
+// to create/attach a -shm file in the data directory — impossible on a read-only
+// filesystem (SQLITE_CANTOPEN on open). Writes are serialized by the cron
+// schedule (ingest/enrich/report never overlap), so a read-only web can open the
+// DELETE-journal DB directly and the read-only connection needs no journal pragma.
 func Open(path string, readOnly bool) (*DB, error) {
 	// modernc.org/sqlite does not accept mode=rw in the DSN; the default
 	// (absent mode) creates/opens read-write. mode=ro is only valid once the
 	// file already exists.
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", path)
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(DELETE)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", path)
 	if readOnly {
-		dsn = fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", path)
+		dsn = fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", path)
 	}
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {

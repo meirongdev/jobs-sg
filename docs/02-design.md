@@ -27,7 +27,7 @@
 |---|---|---|---|
 | 采集 | Playwright + Scrapy + 代理轮换 | Go `net/http` 直连官方 JSON API | API 公开可用 [已验证]；省掉 ~1GB 内存与全部反爬工程 |
 | 调度 | Prefect / Dagster | k8s CronJob | 2 个作业/天，不值 1–2GB 常驻 |
-| 存储 | PostgreSQL + pgvector + S3/MinIO | SQLite(WAL) + PVC 上的 gzip JSON 归档 | 年增 ~145k 行，SQLite 绰绰有余；常驻内存 0 |
+| 存储 | PostgreSQL + pgvector + S3/MinIO | SQLite(回滚日志) + PVC 上的 gzip JSON 归档 | 年增 ~145k 行，SQLite 绰绰有余；常驻内存 0 |
 | 去重 | job_id + MinHash + embedding 相似度 | `uuid` / `jobPostId` / `UEN` 精确键 | 官方主键存在，模糊匹配无必要 |
 | 向量库 | pgvector / Chroma | **不引入** | Bifrost 两个 provider 均 `embedding: false` [已验证] |
 | LLM 分类 | Claude / GPT-4o（付费 API） | Bifrost → DGX Spark 本地模型 | 已有网关 + 本地推理，成本 $0 |
@@ -62,7 +62,7 @@
                     │                                                                            │
  api.mycareersfuture│  ┌────────────────┐   写      ┌──────────────────────────────┐            │
  .gov.sg  ──────────┼─▶│ CronJob ingest │──────────▶│ PVC jobs-sg-data (local-path)│            │
- (公开 JSON API)     │  │ 每日 02:15 SGT │           │  ├─ jobs.db      (SQLite/WAL)│            │
+ (公开 JSON API)     │  │ 每日 02:15 SGT │           │  ├─ jobs.db      (SQLite)│            │
                     │  └────────────────┘           │  └─ raw/YYYY-MM-DD/*.jsonl.gz│            │
                     │                                └──────────────┬───────────────┘            │
                     │  ┌────────────────┐   读写                     │  只读                      │
@@ -249,8 +249,8 @@ Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature
 
 - 三个 CronJob 全部 `concurrencyPolicy: Forbid` + `backoffLimit: 2` + `successfulJobsHistoryLimit: 3` / `failedJobsHistoryLimit: 1` + **`activeDeadlineSeconds`**（ingest 3600 / enrich 3600 / report 1800）——卡死的 Job 必须能自己死掉（92-pod 泄漏事故的根因，见 [04](04-operations.md) §2）。
 - 作业间用 SQLite 事务 + `busy_timeout=10000`；时间表已错开，异常长跑时后者等待而非失败。
-- `web` 只读连接，WAL 模式下不阻塞写入。
-- **RWO PVC 多 Pod 挂载依赖单节点**：单节点下同节点多 Pod 挂载同一 RWO PVC 可行（local-path 是 hostPath，WAL `-shm` 正常）。若集群加节点，必须给所有 jobs-sg 工作负载加 `nodeSelector`/`nodeAffinity` 钉到同一节点——现在就把注释写进 manifests。
+- `web` 只读连接回滚日志库，直接打开已提交数据；写入按时间表串行，无并发写者（见 [03](03-data-model.md) §1）。
+- **RWO PVC 多 Pod 挂载依赖单节点**：单节点下同节点多 Pod 挂载同一 RWO PVC 可行（local-path 是 hostPath）。若集群加节点，必须给所有 jobs-sg 工作负载加 `nodeSelector`/`nodeAffinity` 钉到同一节点——现在就把注释写进 manifests。
 
 ---
 

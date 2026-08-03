@@ -88,7 +88,7 @@
 
 ### 展示（web）
 
-44. As 维护者, I want web 常驻、只读打开 SQLite（WAL mode=ro）, so that 读写互不阻塞、重启不丢状态。
+44. As 维护者, I want web 常驻、只读打开 SQLite（回滚日志 mode=ro）, so that 读写互不阻塞、重启不丢状态。
 45. As 维护者, I want `/` 显示最新周报、`/w/{YYYY-Www}` 显示历史周报、`/healthz` 健康检查、`/metrics` Prometheus 指标, so that 可浏览、可监控。
 46. As 维护者, I want web 不做认证（内容为公开就业市场统计、无个人数据）, so that 部署简单、可直接公开访问。
 
@@ -134,11 +134,11 @@
 - **分类**：`is_candidate`（宽）/ `is_swe`（严）两级；三层判定（SSOC → 类目 → 标题）记录命中层级；`ssoc_taxonomy` 为 Phase 0 人工核定交付物。
 - **富化**：规则层永远先跑；LLM 只输出严格 JSON（`languages/frameworks/cloud/databases/tools/ai`）；`enrich_cache[sha256, model, prompt_version]`；并发 3、超时 60s、重试 1 次；fail-open + 降级链。
 - **指标**：所有数字 SQL 计算；`weekly_metric` 长表（新增指标不改 schema）；口径变更全量重算历史并标注。
-- **存储**：SQLite WAL + `busy_timeout=10000` + `synchronous=NORMAL`；PVC local-path 10Gi；web 只读（`mode=ro`）。
+- **存储**：SQLite 回滚日志 + `busy_timeout=10000` + `synchronous=NORMAL`；PVC local-path 10Gi；web 只读（`mode=ro`）。
 - **调度**：`concurrencyPolicy: Forbid`、`backoffLimit: 2`、`activeDeadlineSeconds`（ingest/enrich 3600 / report 1800）、历史 Job 上限 3/1。
 - **部署**：`k3s-homelab` ns `jobs-sg`；manifests 落 `meirongdev/homelab` 仓库（绕开 sourceRepos 白名单 + AppProject 非 GitOps 管理）；`ReferenceGrant` 用 `v1beta1`；HTTPRoute `parentRefs.port: 80`；ServiceMonitor/PrometheusRule 带 `release: kube-prometheus-stack` 标签；镜像按 digest 固定。
 - **可观测**：指标从 `ingest_run` / `job` 表现算（状态在 DB 不在进程内）；5 条告警规则；日志走 stdout → OTel → Loki（Phase 1 不接 Tempo）。
-- **备份**：jobs.db + WAL/SHM + `raw/` 纳入 restic；PVC `Prune=false`；恢复演练（`PRAGMA integrity_check`）是 Phase 2 DoD。
+- **备份**：jobs.db + `raw/` 纳入 restic；PVC `Prune=false`；恢复演练（`PRAGMA integrity_check`）是 Phase 2 DoD。
 - **安全**：PSA restricted；非 root（uid 10001）、drop ALL caps、seccomp RuntimeDefault、只读根文件系统；密钥走 Vault → ESO，不进 git。
 - **合规**：UA 透明；不落库个人字段；不转售；web 不做认证。
 

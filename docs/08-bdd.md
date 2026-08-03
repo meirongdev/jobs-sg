@@ -330,7 +330,7 @@
 
 ### Scenario: 备份覆盖不可重建资产
 - When restic 夜备执行
-- Then 备份包含 jobs.db + WAL/SHM + 归档目录 `raw/`
+- Then 备份包含 jobs.db（回滚日志，无 WAL/SHM）+ 归档目录 `raw/`
 - And 恢复后 `PRAGMA integrity_check` 通过（Phase 2 DoD 演练）
 
 ### Scenario: 安全基线

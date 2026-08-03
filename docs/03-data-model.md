@@ -8,13 +8,19 @@
 
 ## 1. SQLite 配置
 
-SQLite，WAL 模式，位于 `/data/jobs.db`。全部时间戳统一存 UTC ISO8601。
+SQLite，回滚日志（DELETE）模式，位于 `/data/jobs.db`。全部时间戳统一存 UTC ISO8601。
 
 ```sql
-PRAGMA journal_mode = WAL;      -- 单写多读
-PRAGMA busy_timeout = 10000;    -- 与 web 只读连接并发时避免 SQLITE_BUSY
+PRAGMA journal_mode = DELETE;   -- 单写多读；web 只读挂载下 WAL 无法建 -shm
+PRAGMA busy_timeout = 10000;    -- 异常长跑时后写者等待而非 SQLITE_BUSY
 PRAGMA synchronous = NORMAL;    -- local-path 本地盘，NORMAL 足够
 ```
+
+> **为什么是回滚日志而非 WAL**：web 将 `/data` 只读挂载，而 WAL 打开时需在数据目录
+> 创建/附加 `-shm` 文件——只读文件系统上做不到，`mode=ro` 打开会报 SQLITE_CANTOPEN。
+> 本系统写入由 cron 时间表严格串行（ingest/enrich/report 互不重叠），且 web 只读挂载
+> 本就读已提交快照（看不到 live WAL），WAL 在此无实际收益。回滚日志即可被只读 web
+> 直接打开。
 
 ## 2. Schema
 

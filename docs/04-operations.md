@@ -169,7 +169,7 @@ jobs_sg_unmapped_tech_total
 for pat in bifrost-data calibre-web-automated-config jobs-sg-data; do
 ```
 
-- 覆盖：`jobs.db` + WAL/SHM（restore 时 SQLite 自恢复）。
+- 覆盖：`jobs.db`（回滚日志下无 WAL/SHM 文件；restore 时 SQLite 自恢复）。
 - **归档目录 `raw/` 必须纳入 restic 独立路径**（类似 calibre 书库的整目录做法）：历史快照**不可重建**——API 只返回当前在架职位，下架的永远拿不回来。这是本系统最不可替代的数据资产。全类目归档后年增 ~1.5GB（[03](03-data-model.md) §3），restic 去重后成本可控（每日新增文件，一次存储）。
 - PVC 加 `argocd.argoproj.io/sync-options: Prune=false`。
 - **恢复演练是 Phase 2 DoD**：实际 restore + `PRAGMA integrity_check` 通过。
