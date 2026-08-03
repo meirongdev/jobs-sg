@@ -75,8 +75,8 @@ CREATE TABLE IF NOT EXISTS job_tech (
   job_uuid  TEXT NOT NULL REFERENCES job(uuid),
   tech_slug TEXT NOT NULL,
   tech_kind TEXT NOT NULL,
-  source    TEXT NOT NULL,
-  PRIMARY KEY (job_uuid, tech_slug)
+  source    TEXT NOT NULL,   -- rule | llm (both may coexist)
+  PRIMARY KEY (job_uuid, tech_slug, source)
 );
 
 CREATE TABLE IF NOT EXISTS tech_taxonomy (

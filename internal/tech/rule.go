@@ -76,6 +76,20 @@ func (t *Taxonomy) Extract(text string) []Tech {
 	return out
 }
 
+// NormalizeTerm maps a single raw term (e.g. from LLM output) to its canonical
+// slug + kind via the alias table. Returns ok=false when unmapped.
+func (t *Taxonomy) NormalizeTerm(term string) (slug, kind string, ok bool) {
+	if t == nil {
+		return "", "", false
+	}
+	for _, a := range t.aliases {
+		if a.re.MatchString(term) {
+			return a.slug, a.kind, true
+		}
+	}
+	return "", "", false
+}
+
 // StripHTML removes tags and unescapes common entities from a JD description
 // so rule/LLM layers see plain text.
 func StripHTML(s string) string {
