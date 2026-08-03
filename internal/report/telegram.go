@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,9 @@ type Telegram struct {
 	ChatID   string
 	ThreadID string // message_thread_id; leave empty for the general topic
 	Client   *http.Client
+	// apiBase overrides the Telegram endpoint. Test seam only — production always
+	// uses the default, so there is no way to misconfigure it from the outside.
+	apiBase string
 }
 
 // Enabled reports whether a push will actually be attempted.
@@ -34,14 +39,27 @@ func (t *Telegram) SendSummary(ctx context.Context, text string) error {
 		"text":       text,
 		"parse_mode": "Markdown",
 	}
+	// message_thread_id must be a JSON number: the Bot API types it as Integer, and
+	// a quoted string risks being rejected or ignored — the latter would silently
+	// post the weekly report into the group's General topic instead of the content
+	// topic, which is the one outcome docs/02 §4.3 explicitly forbids (the alert
+	// topic and the content topic share one chat and differ only by this field).
 	if t.ThreadID != "" {
-		payload["message_thread_id"] = t.ThreadID
+		id, err := strconv.Atoi(strings.TrimSpace(t.ThreadID))
+		if err != nil {
+			return fmt.Errorf("telegram thread id %q is not an integer: %w", t.ThreadID, err)
+		}
+		payload["message_thread_id"] = id
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", t.Token)
+	base := t.apiBase
+	if base == "" {
+		base = "https://api.telegram.org/bot" + t.Token
+	}
+	url := base + "/sendMessage"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
