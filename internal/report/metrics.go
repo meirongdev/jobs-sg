@@ -100,6 +100,12 @@ func ComputeMetrics(ctx context.Context, db *store.DB, monday time.Time) (*Repor
 			weekStart, metric, dimKey, dimType, value, store.NowUTC())
 		return err
 	}
+	// posting_date is date-only on the live API ("2026-08-03") while these
+	// bounds render as RFC3339. The string comparison is still correct at
+	// every edge, but only because the bounds are SGT midnights (= Sunday
+	// 16:00Z): the bound's UTC calendar date is never an in-week SGT date.
+	// Do NOT "simplify" the bounds to UTC midnight — that shifts the window
+	// by a day. Pinned by TestWeekWindowDateOnlyBoundaries.
 	sweIn := `FROM job WHERE is_swe=1 AND posting_date >= ? AND posting_date < ?`
 	args := func() []any { return []any{start.Format(time.RFC3339), end.Format(time.RFC3339)} }
 

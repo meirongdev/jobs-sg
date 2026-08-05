@@ -53,7 +53,7 @@ func addJob(t *testing.T, db *store.DB, uuid, title, ssoc, category, firstSeen, 
 	cl := classify.New(map[string]string{"25121": "Backend", "25131": "Frontend"})
 	j := mcf.Job{
 		UUID: uuid, Title: title, Description: "desc",
-		Metadata:   mcf.Metadata{JobPostID: "MCF-" + uuid, NewPostingDate: "2026-08-03T02:00:00Z"},
+		Metadata:   mcf.Metadata{JobPostID: "MCF-" + uuid, NewPostingDate: "2026-08-03"},
 		SSOCCode:   ssoc,
 		Categories: []mcf.Category{{Category: category}},
 		PostedCompany: &mcf.PostedCompany{

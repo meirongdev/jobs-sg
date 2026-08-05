@@ -27,7 +27,7 @@ func seedReportData(t *testing.T, db *store.DB) {
 		}
 		j := mcf.Job{
 			UUID: uuid, Title: title, Description: "desc",
-			Metadata: mcf.Metadata{JobPostID: "MCF-" + uuid, NewPostingDate: date, ExpiryDate: "2026-12-31T00:00:00Z",
+			Metadata: mcf.Metadata{JobPostID: "MCF-" + uuid, NewPostingDate: date, ExpiryDate: "2026-12-31",
 				TotalNumberOfView: view, TotalNumberJobApplication: app, IsHideSalary: hidden},
 			SSOCCode: ssoc, Categories: []mcf.Category{{Category: "Information Technology"}},
 			MinimumYearsExperience: intP(minY), Salary: sal, NumberOfVacancies: intP(3),
@@ -38,12 +38,13 @@ func seedReportData(t *testing.T, db *store.DB) {
 		}
 	}
 	// week of 2026-08-03 (Monday) in SGT -> UTC range [2026-08-02T16:00Z, 2026-08-09T16:00Z)
-	// 3 backend jobs in week, 1 frontend in week, 1 backend previous week
-	mk("b1", "Backend Engineer", "Backend", "2026-08-03T02:00:00Z", 3, salary(6000, 8000, "Monthly", false), false, 100, 5)
-	mk("b2", "Backend Engineer", "Backend", "2026-08-04T02:00:00Z", 3, salary(6500, 8500, "Monthly", false), false, 120, 6)
-	mk("b3", "Backend Engineer", "Backend", "2026-08-05T02:00:00Z", 0, nil, true, 90, 4) // hidden salary, no exp
-	mk("f1", "Frontend Engineer", "Frontend", "2026-08-06T02:00:00Z", 3, salary(5500, 7500, "Monthly", false), false, 80, 3)
-	mk("b0", "Backend Engineer", "Backend", "2026-07-27T02:00:00Z", 3, nil, false, 50, 2) // prev week
+	// 3 backend jobs in week, 1 frontend in week, 1 backend previous week.
+	// Dates are date-only — the live API format (testdata/live).
+	mk("b1", "Backend Engineer", "Backend", "2026-08-03", 3, salary(6000, 8000, "Monthly", false), false, 100, 5)
+	mk("b2", "Backend Engineer", "Backend", "2026-08-04", 3, salary(6500, 8500, "Monthly", false), false, 120, 6)
+	mk("b3", "Backend Engineer", "Backend", "2026-08-05", 0, nil, true, 90, 4) // hidden salary, no exp
+	mk("f1", "Frontend Engineer", "Frontend", "2026-08-06", 3, salary(5500, 7500, "Monthly", false), false, 80, 3)
+	mk("b0", "Backend Engineer", "Backend", "2026-07-27", 3, nil, false, 50, 2) // prev week
 }
 
 func intP(i int) *int { return &i }
@@ -139,6 +140,54 @@ func TestComputeMetricsAndRender(t *testing.T) {
 	}
 	if !strings.Contains(md, "# Singapore SWE Hiring Report") {
 		t.Error("markdown missing title")
+	}
+}
+
+// TestWeekWindowDateOnlyBoundaries pins the week-window comparison against
+// the live date-only posting_date format at all four edges. The bounds are
+// SGT midnights rendered as RFC3339 UTC (Sunday 16:00Z); comparing date-only
+// strings against them is correct ONLY because SGT is UTC+8, so the bound's
+// UTC calendar date is never an in-week SGT date. Guards anyone "simplifying"
+// the bounds to UTC midnight — that would shift the window by a day.
+func TestWeekWindowDateOnlyBoundaries(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "jobs.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Seed(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cl := classify.New(map[string]string{"25121": "Backend"})
+	mk := func(uuid, date string) {
+		j := mcf.Job{
+			UUID: uuid, Title: "Backend Engineer", Description: "desc",
+			Metadata: mcf.Metadata{JobPostID: "MCF-" + uuid, NewPostingDate: date, ExpiryDate: "2026-12-31"},
+			SSOCCode: "25121", Categories: []mcf.Category{{Category: "Information Technology"}},
+		}
+		if _, err := db.UpsertJob(ctx, j, cl.Classify(j), "raw/2026-08-03/000.jsonl.gz#0"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("prev-sun", "2026-08-02") // last day of previous week
+	mk("mon", "2026-08-03")      // first day of this week
+	mk("sun", "2026-08-09")      // last day of this week
+	mk("next-mon", "2026-08-10") // first day of next week
+
+	monday := time.Date(2026, 8, 3, 0, 0, 0, 0, time.FixedZone("SGT", 8*3600))
+	r, err := ComputeMetrics(ctx, db, monday)
+	if err != nil {
+		t.Fatalf("ComputeMetrics: %v", err)
+	}
+	if r.NewJobs != 2 {
+		t.Errorf("new_jobs = %d, want 2 (mon + sun; boundary days must stay in their week)", r.NewJobs)
+	}
+	if r.PrevNewJobs != 1 {
+		t.Errorf("prev_new_jobs = %d, want 1 (prev-sun)", r.PrevNewJobs)
 	}
 }
 
