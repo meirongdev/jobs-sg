@@ -64,7 +64,7 @@ CREATE TABLE job (
   work_mode           TEXT,                  -- Onsite/Hybrid/Remote（由 flexibleWorkArrangements 推导）
   is_swe              INTEGER NOT NULL DEFAULT 0,  -- 是否纳入 SWE 统计口径（见 §4）
   -- 时间与生命周期
-  posting_date        TEXT NOT NULL,         -- metadata.newPostingDate
+  posting_date        TEXT NOT NULL,         -- metadata.newPostingDate；纯日期 "2026-08-03"（API 实际格式，非 RFC3339——解析统一走 mcf.ParsePostingDate）
   original_posting_date TEXT,
   expiry_date         TEXT,
   repost_count        INTEGER DEFAULT 0,
@@ -104,6 +104,18 @@ CREATE TABLE job_tech (
 ); -- 实现注：PK 含 source，使 LLM 层可补充规则层未覆盖词，且 llm 积压口径可清零
 CREATE TABLE tech_taxonomy (     -- 别名归一：golang→go, k8s→kubernetes, gcp→google-cloud
   alias TEXT PRIMARY KEY, tech_slug TEXT NOT NULL, tech_kind TEXT NOT NULL
+);
+
+-- ── 富化完成标记：抽取结果为空也算"已处理" ─────────────────────────────
+-- job_tech 表达不了"处理过但零命中"：LLM 结果全部落 unmapped_tech 的职位
+-- 不产生任何 job_tech 行，曾导致 ~1.4k 个职位永远留在积压里、每晚被
+-- enrich_cache 重放一遍（llm_cached ≈ backlog）。积压口径 = 既无 job_tech
+-- 行也无本标记，因此上线时存量已富化职位无需回填。
+CREATE TABLE enrich_done (
+  job_uuid TEXT NOT NULL REFERENCES job(uuid),
+  source   TEXT NOT NULL,          -- rule | llm
+  done_at  TEXT NOT NULL,
+  PRIMARY KEY (job_uuid, source)
 );
 
 -- ── SSOC → role_family 映射（先测量再定义，Phase 0 交付物）───────────────

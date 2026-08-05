@@ -24,12 +24,17 @@ func (d *DB) LLMBacklog(ctx context.Context) ([]JobRef, error) {
 	return d.enrichBacklog(ctx, "llm")
 }
 
+// enrichBacklog lists SWE jobs the given layer has not processed yet. The
+// enrich_done check is what lets "processed, zero taxonomy matches" jobs
+// leave the backlog; the job_tech check keeps jobs enriched before enrich_done
+// existed out of the backlog without a backfill.
 func (d *DB) enrichBacklog(ctx context.Context, source string) ([]JobRef, error) {
 	rows, err := d.QueryContext(ctx, `
 		SELECT j.uuid, j.title, j.description_sha256, j.raw_path FROM job j
 		WHERE j.is_swe=1
 		  AND NOT EXISTS (SELECT 1 FROM job_tech t WHERE t.job_uuid=j.uuid AND t.source=?)
-		ORDER BY j.posting_date`, source)
+		  AND NOT EXISTS (SELECT 1 FROM enrich_done e WHERE e.job_uuid=j.uuid AND e.source=?)
+		ORDER BY j.posting_date`, source, source)
 	if err != nil {
 		return nil, err
 	}
@@ -87,6 +92,14 @@ func (d *DB) writeTech(ctx context.Context, uuid string, techs []TechRow, source
 			return err
 		}
 	}
+	// Mark the layer done even when techs is empty — zero taxonomy matches is
+	// a valid outcome, not "retry tomorrow" (see enrich_done in schema.go).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO enrich_done(job_uuid, source, done_at) VALUES(?,?,?)
+		ON CONFLICT(job_uuid, source) DO UPDATE SET done_at=excluded.done_at`,
+		uuid, source, NowUTC()); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -115,13 +128,17 @@ func (d *DB) CachePut(ctx context.Context, hash, model, promptVersion, resultJSO
 	return err
 }
 
-// EnrichBacklogCount returns the count of candidate jobs lacking LLM tech
-// (the JobsSgEnrichBacklog metric, docs/04 §3.1).
+// EnrichBacklogCount returns the count of candidate jobs the LLM layer has
+// not processed yet (the JobsSgEnrichBacklog metric, docs/04 §3.1). Must
+// mirror enrichBacklog's conditions, or the metric counts jobs the nightly
+// run will never touch.
 func (d *DB) EnrichBacklogCount(ctx context.Context) (int, error) {
 	var n int
 	err := d.QueryRowContext(ctx, `
 		SELECT count(*) FROM job j
-		WHERE j.is_swe=1 AND NOT EXISTS (SELECT 1 FROM job_tech t WHERE t.job_uuid=j.uuid AND t.source='llm')`).Scan(&n)
+		WHERE j.is_swe=1
+		  AND NOT EXISTS (SELECT 1 FROM job_tech t WHERE t.job_uuid=j.uuid AND t.source='llm')
+		  AND NOT EXISTS (SELECT 1 FROM enrich_done e WHERE e.job_uuid=j.uuid AND e.source='llm')`).Scan(&n)
 	return n, err
 }
 

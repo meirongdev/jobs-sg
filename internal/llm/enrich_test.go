@@ -146,6 +146,46 @@ func TestLLMCacheAndUnmapped(t *testing.T) {
 	}
 }
 
+// TestZeroMatchJobLeavesBacklog reproduces a production bug: jobs whose
+// extraction mapped to zero taxonomy terms wrote no job_tech rows, so they
+// never left either backlog — ~1.4k jobs were re-fetched from enrich_cache
+// every night (llm_cached ≈ backlog on every run) and the backlog metric
+// never drained. Zero matches must count as processed.
+func TestZeroMatchJobLeavesBacklog(t *testing.T) {
+	ctx := context.Background()
+	db, tax, dir := setupEnrich(t)
+	seedCandidate(t, db, dir, "u1", "Engineering Generalist", "You will wear many hats.")
+	stub := stubExtractor{res: Result{Tools: []string{"hats"}}} // unmapped only
+	en := &Enricher{DB: db, DataDir: dir, Taxonomy: tax, LLM: stub, Model: "m", PromptVersion: "v1", Concurrency: 1}
+
+	res, err := en.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusSuccess || res.LLMCalls != 1 {
+		t.Errorf("status=%s calls=%d, want success/1", res.Status, res.LLMCalls)
+	}
+	var techRows int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM job_tech WHERE job_uuid='u1'").Scan(&techRows); err != nil {
+		t.Fatal(err)
+	}
+	if techRows != 0 {
+		t.Fatalf("job_tech rows = %d, want 0 (nothing mappable)", techRows)
+	}
+	if n, err := db.EnrichBacklogCount(ctx); err != nil || n != 0 {
+		t.Errorf("backlog after run = %d (err %v), want 0 — zero matches is processed, not pending", n, err)
+	}
+
+	// re-run must be a no-op: no rule re-scan, no LLM call, no cache re-fetch
+	res2, err := en.Run(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.RuleJobs != 0 || res2.LLMCalls != 0 || res2.LLMCached != 0 {
+		t.Errorf("re-run rule=%d calls=%d cached=%d, want 0/0/0", res2.RuleJobs, res2.LLMCalls, res2.LLMCached)
+	}
+}
+
 func TestFailOpenPreservesRuleResults(t *testing.T) {
 	ctx := context.Background()
 	db, tax, dir := setupEnrich(t)

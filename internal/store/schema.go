@@ -84,6 +84,18 @@ CREATE TABLE IF NOT EXISTS job_tech (
   PRIMARY KEY (job_uuid, tech_slug, source)
 );
 
+-- Completion marker per enrichment layer, written even when extraction found
+-- nothing. job_tech alone cannot express "processed, zero matches": ~1.4k jobs
+-- with taxonomy-empty LLM results sat in the backlog forever and were
+-- re-fetched from enrich_cache every night. Backlog = lacks job_tech rows AND
+-- lacks this marker, so pre-existing enriched jobs need no backfill.
+CREATE TABLE IF NOT EXISTS enrich_done (
+  job_uuid TEXT NOT NULL REFERENCES job(uuid),
+  source   TEXT NOT NULL,   -- rule | llm
+  done_at  TEXT NOT NULL,
+  PRIMARY KEY (job_uuid, source)
+);
+
 CREATE TABLE IF NOT EXISTS tech_taxonomy (
   alias TEXT PRIMARY KEY, tech_slug TEXT NOT NULL, tech_kind TEXT NOT NULL
 );
