@@ -58,6 +58,11 @@ func TestJobDecodeLiveShapes(t *testing.T) {
 		}
 		if j.Metadata.NewPostingDate == "" {
 			t.Errorf("job %d (%s): empty metadata.newPostingDate — the incremental watermark", i, j.UUID)
+		} else if _, err := ParsePostingDate(j.Metadata.NewPostingDate); err != nil {
+			// Non-empty is not enough: the live format is date-only, and an
+			// unparseable date silently disables ingest's early stop (every
+			// nightly scan then runs to the circuit breaker and goes partial).
+			t.Errorf("job %d (%s): unparseable newPostingDate %q: %v", i, j.UUID, j.Metadata.NewPostingDate, err)
 		}
 	}
 

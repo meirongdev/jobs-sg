@@ -67,9 +67,12 @@ func main() {
 			Title:       r.title,
 			Description: "<p>" + r.desc + "</p><ul><li>Relevant degree</li></ul>",
 			Metadata: mcf.Metadata{
-				JobPostID:                 fmt.Sprintf("MCF-2026-%07d", 1000000+i),
-				NewPostingDate:            now.Add(-time.Duration(i%7) * 24 * time.Hour).Format(time.RFC3339),
-				ExpiryDate:                now.AddDate(0, 0, 30).Format(time.RFC3339),
+				JobPostID: fmt.Sprintf("MCF-2026-%07d", 1000000+i),
+				// Date-only, matching the live API (testdata/live). RFC3339
+				// fixtures once masked a parsing bug that killed the
+				// incremental early stop.
+				NewPostingDate:            now.Add(-time.Duration(i%7) * 24 * time.Hour).Format("2006-01-02"),
+				ExpiryDate:                now.AddDate(0, 0, 30).Format("2006-01-02"),
 				RepostCount:               i % 3,
 				TotalNumberOfView:         50 + rng.Intn(2000),
 				TotalNumberJobApplication: 1 + rng.Intn(60),

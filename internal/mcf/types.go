@@ -11,6 +11,8 @@
 // against 500 live postings; see the enumeration in TestJobDecodeLiveShapes.
 package mcf
 
+import "time"
+
 // Page is the /v2/jobs paginated response envelope.
 type Page struct {
 	Results             []Job      `json:"results"`
@@ -80,6 +82,19 @@ type Metadata struct {
 	TotalNumberOfView         int    `json:"totalNumberOfView"`
 	TotalNumberJobApplication int    `json:"totalNumberJobApplication"`
 	IsHideSalary              bool   `json:"isHideSalary"`
+}
+
+// ParsePostingDate parses the Metadata date fields (newPostingDate,
+// originalPostingDate, expiryDate). The live API returns date-only values
+// ("2026-08-03") — parsing them as RFC3339 only made ingest's incremental
+// early-stop dead code, so every nightly scan ran to the page-limit circuit
+// breaker and finished partial. RFC3339 stays accepted as a fallback in case
+// the upstream format changes.
+func ParsePostingDate(s string) (time.Time, error) {
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, s)
 }
 
 type PositionLevel struct {

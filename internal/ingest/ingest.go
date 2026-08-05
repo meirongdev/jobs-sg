@@ -103,9 +103,14 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	isReconcile := cfg.Reconcile
 	baseline := !isReconcile && !wm0.Valid
 	if wm0.Valid {
-		if t, perr := time.Parse(time.RFC3339, wm0.String); perr == nil {
+		if t, perr := mcf.ParsePostingDate(wm0.String); perr == nil {
 			watermark = t
 			haveWatermark = true
+		} else {
+			// Without a watermark the incremental scan cannot early-stop and
+			// runs to the page-limit circuit breaker every night — loud, not
+			// silent (this exact failure shipped once as a format mismatch).
+			slog.Warn("watermark unparseable, incremental early-stop disabled", "watermark", wm0.String, "err", perr)
 		}
 	}
 	kind := store.RunIncremental
@@ -155,7 +160,7 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 				continue // archive failed; skip (DB stays rebuildable from archive)
 			}
 			if !isReconcile {
-				t, terr := time.Parse(time.RFC3339, jobs[i].Metadata.NewPostingDate)
+				t, terr := mcf.ParsePostingDate(jobs[i].Metadata.NewPostingDate)
 				if terr == nil && haveWatermark && t.Before(watermark.Add(-cfg.BackoffWindow)) {
 					return true, nil
 				}

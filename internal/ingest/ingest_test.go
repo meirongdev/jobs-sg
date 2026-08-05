@@ -147,6 +147,42 @@ func TestIncrementalStopsAtWatermarkWindow(t *testing.T) {
 	}
 }
 
+// TestIncrementalStopsWithDateOnlyPostingDates is the same scenario in the
+// format the live API actually returns ("2026-08-03", not RFC3339). This was
+// a production bug: RFC3339-only parsing made both the watermark and the
+// per-job stop check fail silently, so every incremental scan ran to the
+// page-limit circuit breaker and finished partial.
+func TestIncrementalStopsWithDateOnlyPostingDates(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	now := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	rt := &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01")}}, total: 1}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: func() time.Time { return now }, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+
+	rt2 := &pageRT{
+		pages: [][]mcf.Job{
+			{sweJob("c", "2026-08-02"), sweJob("d", "2026-07-01")},
+			{sweJob("e", "2026-06-01")},
+		},
+		total: 3,
+	}
+	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: func() time.Time { return now }, Delay: 0, BackoffWindow: 48 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pages != 1 {
+		t.Errorf("pages = %d, want 1 (early stop must work on date-only postings)", res.Pages)
+	}
+	if res.Status != store.StatusSuccess {
+		t.Errorf("status = %s, want success (partial means the circuit breaker fired)", res.Status)
+	}
+	if res.Errors != 0 {
+		t.Errorf("errors = %d, want 0", res.Errors)
+	}
+}
+
 func TestReconcileClosesAfterTwoMisses(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
