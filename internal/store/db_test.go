@@ -217,3 +217,30 @@ func TestReadOnlyHandleServesConcurrentReaders(t *testing.T) {
 		t.Errorf("concurrent read failed: %v", err)
 	}
 }
+
+// TestJobTechSlugIndexExists pins the reverse index on job_tech. The table's
+// primary key is (job_uuid, tech_slug, source), so every per-technology query
+// on /tech is a full scan without it.
+func TestJobTechSlugIndexExists(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "jobs.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"idx_job_tech_slug", "idx_job_active_list", "idx_job_salary", "idx_job_exp",
+	} {
+		var n int
+		if err := db.QueryRowContext(ctx,
+			`SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?`, want).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("index %s missing", want)
+		}
+	}
+}
