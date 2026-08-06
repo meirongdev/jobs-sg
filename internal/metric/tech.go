@@ -29,17 +29,16 @@ type TechStat struct {
 
 // TechReport is the /tech page model.
 type TechReport struct {
-	Week             string     // reported ISO week, e.g. "2026-W32"
-	Denom            int        // enriched SWE postings in that week (the share denominator)
-	Ranked           []TechStat // by Count desc, capped at RankedTechLimit
-	Rising           []TechStat // by MomentumPP desc, unsuppressed only
-	Falling          []TechStat // by MomentumPP asc, unsuppressed only
-	MomentumEligible int        // ranked techs clearing both momentum gates (counted before the display cap)
-	MomentumFloor    int        // MinTechCountForMomentum, surfaced so the page can state the bar it applies
-	MedianAll        float64    // rolling-90d median monthly salary, the premium baseline
-	SalaryN          int        // disclosed monthly salaries behind MedianAll
-	SalaryTotal      int        // every SWE posting in the same window — the transparency denominator
-	History          Coverage   // how many of the 5 momentum windows had data
+	Week             string       // reported ISO week, e.g. "2026-W32"
+	Denom            int          // enriched SWE postings in that week (the share denominator)
+	Ranked           []TechStat   // by Count desc, capped at RankedTechLimit
+	Rising           []TechStat   // by MomentumPP desc, unsuppressed only
+	Falling          []TechStat   // by MomentumPP asc, unsuppressed only
+	MomentumEligible int          // ranked techs clearing both momentum gates (counted before the display cap)
+	MomentumFloor    int          // MinTechCountForMomentum, surfaced so the page can state the bar it applies
+	MedianAll        float64      // rolling-90d median monthly salary, the premium baseline
+	Salary           Transparency // disclosed vs all postings behind MedianAll
+	History          Coverage     // how many of the 5 momentum windows had data
 	Lens             Lens
 }
 
@@ -135,9 +134,9 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 	if err != nil {
 		return nil, err
 	}
-	r.SalaryN = len(allSalaries)
+	r.Salary.Disclosed = len(allSalaries)
 	r.MedianAll = Percentile(allSalaries, 0.5)
-	if r.SalaryTotal, err = sweCount(ctx, db, roll, lens); err != nil {
+	if r.Salary.Total, err = sweCount(ctx, db, roll, lens); err != nil {
 		return nil, err
 	}
 
@@ -242,11 +241,19 @@ func momentumBoards(ranked []TechStat) (rising, falling []TechStat) {
 	return rising, falling
 }
 
-// disclosedSalary limits every salary figure to publicly advertised monthly
-// ranges. The share of postings that disclose at all is itself a headline
+// salaryMidpoint is the advertised range's midpoint — the single value every
+// salary statistic in this package is computed over.
+const salaryMidpoint = `(j.salary_min+j.salary_max)/2.0`
+
+// disclosedSalaryPredicate limits salary figures to publicly advertised
+// monthly ranges. disclosedSalary is its WHERE-appendable form; both come from
+// one definition so a change to what counts as disclosed cannot land in only
+// one of them. The share of postings that disclose at all is itself a headline
 // number (spec §3.3) — these medians describe only that subset.
-const disclosedSalary = `AND j.salary_hidden=0 AND j.salary_type='Monthly'
+const disclosedSalaryPredicate = `j.salary_hidden=0 AND j.salary_type='Monthly'
 	AND j.salary_min IS NOT NULL AND j.salary_max IS NOT NULL`
+
+const disclosedSalary = `AND ` + disclosedSalaryPredicate
 
 // salarySample returns the ascending midpoint salaries in the window, either
 // overall (slug == "") or for postings mentioning one technology.
@@ -255,10 +262,10 @@ const disclosedSalary = `AND j.salary_hidden=0 AND j.salary_type='Monthly'
 // carrying the technology from both the rule and LLM layers has two job_tech
 // rows, and counting it twice would skew the median toward it.
 func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug string) ([]float64, error) {
-	q := `SELECT (j.salary_min+j.salary_max)/2.0 ` + swePosted + lens.Where() + ` ` + disclosedSalary + ` ORDER BY 1`
+	q := `SELECT ` + salaryMidpoint + ` ` + swePosted + lens.Where() + ` ` + disclosedSalary + ` ORDER BY 1`
 	args := w.Args()
 	if slug != "" {
-		q = `SELECT min((j.salary_min+j.salary_max)/2.0)
+		q = `SELECT min(` + salaryMidpoint + `)
 			FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
 			WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?` +
 			lens.Where() + ` ` + disclosedSalary + ` AND t.tech_slug = ?
@@ -290,16 +297,6 @@ func sweCount(ctx context.Context, db *store.DB, w Window, lens Lens) (int, erro
 	var n int
 	err := db.QueryRowContext(ctx, `SELECT count(*) `+swePosted+lens.Where(), w.Args()...).Scan(&n)
 	return n, err
-}
-
-// TransparencyPct is the share of SWE postings in the rolling window that
-// disclose a monthly salary. It is printed beside every salary figure so a
-// median over the disclosing subset cannot read as a market-wide number.
-func (r *TechReport) TransparencyPct() float64 {
-	if r.SalaryTotal == 0 {
-		return 0
-	}
-	return float64(r.SalaryN) / float64(r.SalaryTotal)
 }
 
 // entryShare returns slug -> share of postings mentioning it that are
