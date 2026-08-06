@@ -1,5 +1,6 @@
 // Command genfixture writes testdata/fixture/jobs.jsonl — a deterministic,
-// record-shaped sample of ~100 MCF job objects for fixture replay tests.
+// record-shaped sample of 360 MCF job objects (6 complete ISO weeks × 60) for
+// fixture replay tests.
 // Field shapes follow the 2026-08-02 site survey (docs/archive/2026-08-02-
 // site-survey.md); this is sample data, not a live API capture (offline env).
 package main
@@ -66,6 +67,10 @@ func main() {
 	firstMonday := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC)
 	const weeks, perWeek = 6, 60
 	var jobs []mcf.Job
+	// perWeek (60) is not a multiple of len(rows) (24): each template lands 2
+	// or 3 times per week, alternating week by week, and only balances to 15
+	// per template over the full 6 weeks. Weekly per-template counts therefore
+	// oscillate mechanically — tests must not read that oscillation as a trend.
 	for i := 0; i < weeks*perWeek; i++ {
 		r := rows[i%len(rows)]
 		week, dayInWeek := i/perWeek, i%7

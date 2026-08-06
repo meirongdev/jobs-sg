@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/meirongdev/jobs-sg/internal/mcf"
 )
@@ -27,6 +28,7 @@ func TestFixtureReplay(t *testing.T) {
 	count := 0
 	candidates := 0
 	swe := 0
+	weeks := map[[2]int]int{}
 	for sc.Scan() {
 		if len(sc.Bytes()) == 0 {
 			continue
@@ -35,6 +37,12 @@ func TestFixtureReplay(t *testing.T) {
 		if err := json.Unmarshal(sc.Bytes(), &j); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
+		d, err := time.Parse("2006-01-02", j.Metadata.NewPostingDate)
+		if err != nil {
+			t.Fatalf("%s: bad newPostingDate %q: %v", j.UUID, j.Metadata.NewPostingDate, err)
+		}
+		y, w := d.ISOWeek()
+		weeks[[2]int{y, w}]++
 		res := cl.Classify(j)
 		count++
 		if res.IsCandidate {
@@ -68,7 +76,20 @@ func TestFixtureReplay(t *testing.T) {
 	if count != 360 {
 		t.Fatalf("fixture count = %d, want 360", count)
 	}
-	// sanity: the 100-row mix (22 unique rows cycled) has both candidates and
+	// Week-shape guard, not just cardinality: the metric tests' fixed clock
+	// (2026-08-10, W33 Monday) needs exactly 2026-W27..W32 populated at 60
+	// rows each — 5 completed weeks behind the reported one. A reshuffled 360
+	// (4 weeks × 90, or a shifted Monday leaving partial weeks) would pass a
+	// bare count and silently break every momentum test.
+	if len(weeks) != 6 {
+		t.Fatalf("fixture spans %d ISO weeks, want 6: %v", len(weeks), weeks)
+	}
+	for wk := 27; wk <= 32; wk++ {
+		if n := weeks[[2]int{2026, wk}]; n != 60 {
+			t.Errorf("ISO week 2026-W%02d = %d rows, want 60", wk, n)
+		}
+	}
+	// sanity: the 360-row mix (24 unique rows cycled) has both candidates and
 	// non-candidates
 	if candidates == 0 || candidates == count {
 		t.Fatalf("candidates = %d/%d, expected a mixed set", candidates, count)
