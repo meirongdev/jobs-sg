@@ -357,43 +357,6 @@ func TestDayDetailTruncatesLongList(t *testing.T) {
 	}
 }
 
-// The first-run baseline stores the whole live market in one day; without
-// outlier handling every later day renders as a 1px stub.
-func TestChartScaleIgnoresBaselineOutlier(t *testing.T) {
-	cases := []struct {
-		name string
-		vals []float64
-		want float64
-	}{
-		{"baseline day dwarfs the rest", []float64{6666, 40, 38, 45, 41}, 45},
-		{"ordinary spread keeps true max", []float64{40, 38, 45, 41}, 45},
-		{"2x is not an outlier", []float64{80, 40, 38}, 80},
-		{"all zero", []float64{0, 0}, 1},
-		{"single point", []float64{12}, 12},
-	}
-	for _, c := range cases {
-		kvs := make([]KV, len(c.vals))
-		for i, v := range c.vals {
-			kvs[i] = KV{Key: "d", Value: v}
-		}
-		if got := chartScale(kvs); got != c.want {
-			t.Errorf("%s: chartScale = %v, want %v", c.name, got, c.want)
-		}
-	}
-
-	// the clipped column still reports its real value on the page
-	svg := string(columnSVG([]KV{{Key: "08-01", Value: 6666}, {Key: "08-02", Value: 40}}, "new SWE"))
-	if !strings.Contains(svg, ">6666<") {
-		t.Errorf("clipped column must print its value:\n%s", svg)
-	}
-	if !strings.Contains(svg, `fill="#7c3aed"`) {
-		t.Errorf("clipped column must be visually distinct:\n%s", svg)
-	}
-	if strings.Contains(svg, `height="0"`) {
-		t.Errorf("ordinary column collapsed to zero height:\n%s", svg)
-	}
-}
-
 func TestDailyEmptyDBRenders(t *testing.T) {
 	db := openDailyDB(t)
 	o, err := ComputeDailyOverview(context.Background(), db, dailyNow, 7)
@@ -434,8 +397,8 @@ func TestRenderDailyPagesAreSelfContained(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Daily Crawl Statistics",
-		`href="/daily/2026-08-04"`, // day rows drill down
-		`href="/"`,                 // nav back to the weekly report
+		`href="/ops/2026-08-04"`, // day rows drill down
+		`href="/"`,               // nav back to the weekly report
 		"Daily crawl detail",
 		"New SWE postings per day",
 		`class="pill s-partial"`, // degraded enrich surfaces on the day row
@@ -458,7 +421,7 @@ func TestRenderDailyPagesAreSelfContained(t *testing.T) {
 		"Crawl Detail — 2026-08-04",
 		"Backend Engineer",
 		"Postings first seen this day",
-		`href="/daily/2026-08-03"`,
+		`href="/ops/2026-08-03"`,
 	} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail HTML missing %q", want)

@@ -6,13 +6,15 @@ import (
 	"html/template"
 	"math"
 	"strings"
+
+	"github.com/meirongdev/jobs-sg/internal/view"
 )
 
 // RenderHTML produces a self-contained HTML report (inline CSS + SVG, no
 // external resources — docs/02 §4.3).
 func RenderHTML(r *Report) (string, error) {
 	tmpl := template.Must(template.New("report").Funcs(template.FuncMap{
-		"bar":    barSVG,
+		"bar":    view.Bar,
 		"pct":    pct,
 		"money":  money,
 		"topn":   topn,
@@ -70,73 +72,18 @@ func topn(kvs []KV, n int) []KV {
 	return kvs
 }
 
-func barSVG(kvs []KV, maxBars int) template.HTML {
-	if len(kvs) == 0 {
-		return template.HTML("")
-	}
-	kvs = topn(kvs, maxBars)
-	max := 0.0
-	for _, kv := range kvs {
-		if kv.Value > max {
-			max = kv.Value
-		}
-	}
-	if max == 0 {
-		max = 1
-	}
-	const barH = 22
-	const gap = 6
-	// Height follows the bar count — the old fixed viewBox clipped everything
-	// past the 11th bar and callers ask for 15. max-width pins the chart to
-	// its viewBox width; stretched to the full column it scales the 12px type
-	// up with it.
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`<svg viewBox="0 0 520 %d" style="max-width:520px" xmlns="http://www.w3.org/2000/svg" class="chart" role="img" aria-label="bar chart">`,
-		10+len(kvs)*(barH+gap)))
-	y := 10
-	for _, kv := range kvs {
-		// 340 not 400: the value label sits after the bar and was rendering
-		// past the right edge of the viewBox on the longest bar
-		w := 4 + int(340*(kv.Value/max))
-		h := barH
-		b.WriteString(fmt.Sprintf(`<text x="2" y="%d" class="lab">%s</text>`, y+h-6, template.HTMLEscapeString(kv.Key)))
-		b.WriteString(fmt.Sprintf(`<rect x="120" y="%d" width="%d" height="%d" rx="2" fill="#2563eb"/>`, y, w, h))
-		b.WriteString(fmt.Sprintf(`<text x="%d" y="%d" class="val">%d</text>`, 126+w, y+h-6, int(kv.Value)))
-		y += barH + gap
-	}
-	b.WriteString(`</svg>`)
-	return template.HTML(b.String())
-}
-
-// baseCSS is shared by every page the service renders (weekly report written
-// to disk by cmd/report, daily pages rendered live by internal/web) so the two
-// stay visually one site.
-const baseCSS = `
-:root{--bg:#0f172a;--card:#1e293b;--fg:#e2e8f0;--mut:#94a3b8;--acc:#2563eb}
-*{box-sizing:border-box}body{margin:0;font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg);padding:24px}
-.wrap{max-width:900px;margin:0 auto}h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;border-bottom:1px solid #334155;padding-bottom:6px;margin-top:32px}
-.sub{color:var(--mut)}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:18px 0}
-.card{background:var(--card);border-radius:10px;padding:14px}.card .n{font-size:26px;font-weight:700;color:#60a5fa}
-.card .k{color:var(--mut);font-size:13px}table{width:100%;border-collapse:collapse;margin-top:10px}
-td,th{padding:6px 8px;text-align:left;border-bottom:1px solid #334155}th{color:var(--mut);font-weight:500}
-svg text{font-size:12px;fill:var(--fg)}svg .lab{fill:var(--mut)}.foot{margin-top:36px;color:var(--mut);font-size:12px}
-svg.chart{width:100%;height:auto;max-width:100%}
-.nav{margin:14px 0 4px;font-size:14px}.nav a{color:#60a5fa;text-decoration:none;margin-right:16px}
-.nav a:hover{text-decoration:underline}.nav a.on{color:var(--fg);font-weight:600}
-`
-
 const htmlTmpl = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SWE Market Report {{.WeekLabel}}</title>
-<style>` + baseCSS + `</style>
+<style>` + view.BaseCSS + `</style>
 </head>
 <body><div class="wrap">
 <h1>Singapore SWE Hiring Report</h1>
 <div class="sub">Week {{.WeekLabel}} (ISO week starting {{.WeekStart}}, SGT) · jobs.meirong.dev</div>
-<nav class="nav"><a class="on" href="/">Weekly report</a><a href="/daily">Daily crawl stats</a></nav>
+<nav class="nav"><a class="on" href="/">Weekly report</a><a href="/tech">Tech</a></nav>
 
 <h2>1. Executive Snapshot</h2>
 <div class="cards">
@@ -192,7 +139,7 @@ const htmlTmpl = `<!DOCTYPE html>
 <tr><td>Unmapped tech terms</td><td>{{.DataQuality.UnmappedTech}}</td></tr>
 </table>
 
-<div class="foot">Numbers computed by SQL from public MyCareersFuture data. Methodology: docs/03-data-model.md · Compliance: aggregate stats only, no personal data.</div>
+<div class="foot">Numbers computed by SQL from public MyCareersFuture data. Methodology: docs/03-data-model.md · <a href="/ops">data freshness</a> · Compliance: aggregate stats only, no personal data.</div>
 </div></body></html>`
 
 const mdTmpl = `# Singapore SWE Hiring Report — Week {{.WeekLabel}}

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/meirongdev/jobs-sg/internal/metric"
 	"github.com/meirongdev/jobs-sg/internal/store"
 )
 
@@ -15,11 +16,9 @@ import (
 // period, while timestamps are stored as UTC (docs/03 §2).
 var sgt = time.FixedZone("SGT", 8*3600)
 
-// KV is a labeled value for report sections.
-type KV struct {
-	Key   string
-	Value float64
-}
+// KV is a labeled value for report sections. It aliases metric.KV so the
+// aggregate layer and the renderer cannot drift apart.
+type KV = metric.KV
 
 // CompanyCount is a top-company row.
 type CompanyCount struct {

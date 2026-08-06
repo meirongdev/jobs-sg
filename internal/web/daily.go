@@ -101,7 +101,7 @@ func (s *Server) servePage(w http.ResponseWriter, key string, now time.Time, bui
 // for pages nobody searches for. The report pages stay indexable.
 func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte("User-agent: *\nDisallow: /daily/\nCrawl-delay: 10\n"))
+	w.Write([]byte("User-agent: *\nDisallow: /ops/\nCrawl-delay: 10\n"))
 }
 
 func writeHTML(w http.ResponseWriter, html string) {

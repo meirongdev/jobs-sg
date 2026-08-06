@@ -68,6 +68,12 @@ CREATE INDEX IF NOT EXISTS idx_job_fp           ON job(canonical_fp);
 -- full scans of an ~86k-row table on every request.
 CREATE INDEX IF NOT EXISTS idx_job_first_seen   ON job(first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_job_closed       ON job(closed_at);
+-- Job-seeker pages filter active SWE postings by posting window.
+CREATE INDEX IF NOT EXISTS idx_job_active_list ON job(is_swe, closed_at, posting_date);
+-- Salary percentiles / premium scan only disclosed monthly salaries.
+CREATE INDEX IF NOT EXISTS idx_job_salary      ON job(is_swe, salary_type, salary_hidden, posting_date);
+-- Experience-band lens and the entry-level dashboard.
+CREATE INDEX IF NOT EXISTS idx_job_exp         ON job(is_swe, min_years_exp);
 
 CREATE TABLE IF NOT EXISTS job_skill (
   job_uuid     TEXT NOT NULL REFERENCES job(uuid),
@@ -83,6 +89,9 @@ CREATE TABLE IF NOT EXISTS job_tech (
   source    TEXT NOT NULL,   -- rule | llm (both may coexist)
   PRIMARY KEY (job_uuid, tech_slug, source)
 );
+-- Per-technology queries (/tech) filter by tech_slug, but the table's primary
+-- key is (job_uuid, tech_slug, source) — a slug lookup scans without this.
+CREATE INDEX IF NOT EXISTS idx_job_tech_slug   ON job_tech(tech_slug, job_uuid);
 
 -- Completion marker per enrichment layer, written even when extraction found
 -- nothing. job_tech alone cannot express "processed, zero matches": ~1.4k jobs

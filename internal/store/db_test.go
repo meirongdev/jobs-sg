@@ -217,3 +217,94 @@ func TestReadOnlyHandleServesConcurrentReaders(t *testing.T) {
 		t.Errorf("concurrent read failed: %v", err)
 	}
 }
+
+// TestJobTechSlugIndexExists pins the reverse index on job_tech. The table's
+// primary key is (job_uuid, tech_slug, source), so every per-technology query
+// on /tech is a full scan without it.
+func TestJobTechSlugIndexExists(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "jobs.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"idx_job_tech_slug", "idx_job_active_list", "idx_job_salary", "idx_job_exp",
+	} {
+		var n int
+		if err := db.QueryRowContext(ctx,
+			`SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?`, want).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("index %s missing", want)
+		}
+	}
+}
+
+// The job-seeker pages (/tech, salary, active listing, experience-band) slice
+// an ~86k-row job table on every request; a planner regression here is a
+// silent full scan, same risk TestCrawlTimeQueriesUseIndexes guards against.
+func TestJobSeekerQueriesUseIndexes(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	cases := []struct {
+		name        string
+		query       string
+		args        []any
+		want        string
+		mustNotScan string
+	}{
+		{
+			"per-technology salary lookup",
+			`SELECT min((j.salary_min+j.salary_max)/2.0)
+			 FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
+			 WHERE j.is_swe=1 AND t.tech_slug = 'go'
+			 GROUP BY j.uuid`,
+			nil,
+			"idx_job_tech_slug",
+			"SCAN job_tech\n",
+		},
+		{
+			"salary percentile window",
+			`SELECT (j.salary_min+j.salary_max)/2.0 FROM job j
+			 WHERE j.is_swe=1 AND j.posting_date >= '2026-01-01' AND j.posting_date < '2026-04-01'
+			   AND j.salary_hidden=0 AND j.salary_type='Monthly'
+			   AND j.salary_min IS NOT NULL AND j.salary_max IS NOT NULL`,
+			nil,
+			"idx_job_salary",
+			"SCAN job\n",
+		},
+		{
+			"active listing window",
+			`SELECT count(*) FROM job
+			 WHERE is_swe=1 AND closed_at IS NULL AND posting_date >= '2026-01-01'`,
+			nil,
+			"idx_job_active_list",
+			"SCAN job\n",
+		},
+		{
+			"experience-band filter",
+			`SELECT count(*) FROM job
+			 WHERE is_swe=1 AND min_years_exp IS NOT NULL AND min_years_exp <= 2`,
+			nil,
+			"idx_job_exp",
+			"SCAN job\n",
+		},
+	}
+	for _, c := range cases {
+		plan := queryPlan(t, db, c.query, c.args...)
+		if !strings.Contains(plan, c.want) {
+			t.Errorf("%s does not use %s:\n%s", c.name, c.want, plan)
+		}
+		if strings.Contains(plan, c.mustNotScan) {
+			t.Errorf("%s falls back to a full table scan:\n%s", c.name, plan)
+		}
+	}
+}
