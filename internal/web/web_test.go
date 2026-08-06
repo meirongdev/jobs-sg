@@ -309,3 +309,31 @@ func TestOpsIsNotInTheJobSeekerNav(t *testing.T) {
 		t.Error("/ops must still be reachable from the footer")
 	}
 }
+
+func TestRedirectTargetDoesNotAccumulateAcrossRequests(t *testing.T) {
+	// get() rebuilds the mux per call, resetting redirectTo's closure — which
+	// is precisely why it can never catch the accumulation bug the closure's
+	// comment warns about. Production builds the handler ONCE (cmd/web), so
+	// this test does too, and sends several requests through that instance.
+	s := setupWeb(t)
+	h := s.Handler()
+	do := func(path string) string {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMovedPermanently {
+			t.Fatalf("GET %s = %d, want 301", path, rec.Code)
+		}
+		return rec.Header().Get("Location")
+	}
+	if got := do("/daily?days=7"); got != "/ops?days=7" {
+		t.Fatalf("first redirect = %q, want /ops?days=7", got)
+	}
+	// The second request must not inherit the first one's query string.
+	if got := do("/daily"); got != "/ops" {
+		t.Errorf("second redirect = %q, want bare /ops — the closure accumulated state", got)
+	}
+	if got := do("/daily?days=3"); got != "/ops?days=3" {
+		t.Errorf("third redirect = %q, want /ops?days=3", got)
+	}
+}
