@@ -2644,6 +2644,8 @@ func (s *Server) redirectDailyDate(w http.ResponseWriter, r *http.Request) {
 `internal/report/daily_test.go` 的 `TestRenderDailyPagesAreSelfContained` 断言了这两处的字面 href——随迁移更新两处字符串字面量（`/daily/2026-08-04` → `/ops/2026-08-04`，`/daily/2026-08-03` → `/ops/2026-08-03`），其余断言不动。
 
 > 执行记录 2026-08-07：首次执行 BLOCKED——初版计划漏了 `TestRenderDailyPagesAreSelfContained` 对 `/daily/{date}` 字面 href 的断言（与 Task 6 同根因：包内测试绑定实现细节），"删路径 + 全绿 + 不动该测试"互斥。裁定 sweep-clean 方案（概览下钻链接一并迁 `/ops`，301 只服务外部书签），本节已回写。修正后落地 `8d2af67`：路由 301 保 query、六文件、全绿；实现者另按同文件清理原则更新了 `daily_render.go` 两处 doc 注释（已追认）。散文注释里的 `/daily` 残留（cache.go/daily.go/store 三处文件）随 A-2 待办第 5 项清理。
+>
+> 执行记录（补）：质量 review 一条 Important 以 `3139665` 跟进——`TestDailyRedirectsToOps` 对 `redirectTo` 注释所警告的累积 bug 是盲的（`get()` 助手每请求重建 mux、重置闭包；review 实证种入 bug 跑 15 次全绿）。补 `TestRedirectTargetDoesNotAccumulateAcrossRequests`：单一 handler 实例连发三请求（与生产 cmd/web 只调一次 `Handler()` 同构），变异自证第三次请求显形 `/ops?days=7?days=3`。nav 收敛入待办第 10 项；README 路由表纳入待办第 5 项；`redirectDailyDate` 未来日期绕路记录不修。
 
 `internal/report/render.go` 周报模板的 `<nav>` 同样改（原来是 `Weekly report` + `Daily crawl stats` 两项）：
 
@@ -2701,8 +2703,9 @@ Expected: 改动只落在本计划「文件结构」表列出的文件上；`doc
 2. `/`：市场快报卡片 + 12 周新增趋势 + 入门岗绝对数 —— spec §3.4 的首屏部分。
 3. `/companies`：持续招聘者、岗位寿命（需先给 fixture 灌 `closed_at`——它不是 MCF JSON 字段，只能在测试里写库）、竞争度分层（日均投递归一化）—— spec §3.5、§3.6。
 4. 周报按新顺序重排 + Data Quality 收为页脚一行 + Telegram 改求职者口播 —— spec §4.5。
-5. `docs/01-requirements.md` §1/§2/§5 按 spec §1.1 更新；同一批做 `/daily` 残留引述清理——`docs/02-design.md`、`docs/07-prd.md`、`docs/08-bdd.md`（活文档，Gherkin 路径须跟实现）以及代码注释里的提及（`internal/web/cache.go:11`、`internal/report/daily.go` 四处、`internal/store/{db.go,db_test.go,schema.go}` 各一处——均为散文注释，非路由）。
+5. `docs/01-requirements.md` §1/§2/§5 按 spec §1.1 更新；同一批做 `/daily` 残留引述清理——`README.md`（§web 路由表仍写 `/daily` 两页、且缺 `/tech`，Task 10/11 后已属误导而非仅过时）、`docs/02-design.md`、`docs/07-prd.md`、`docs/08-bdd.md`（活文档，Gherkin 路径须跟实现）以及代码注释里的提及（`internal/web/cache.go:11`、`internal/report/daily.go` 四处、`internal/store/{db.go,db_test.go,schema.go}` 各一处——均为散文注释，非路由）。
 6. 物化 `tech_share` 与 `swe_enriched` 到 `weekly_metric` —— spec §3.1 的审计载体（口径变更全量重算的依据），随第 4 项一起落在 cmd/report；展示路径不变，仍走现算。
 7. `internal/report` 的窗口助手（`sgt`/`WeekBounds`/`DayBounds`/`ISOWeekLabel`）收敛到 `metric.Window` —— 两份实现已有行为差异（report 版信任调用者预本地化，metric 版自己 `.In(SGT)`），不收敛迟早有人只修一份的边界 bug。随第 4 项周报重排一起做。
 8. `internal/report` 的取值格式化助手（`pct`/`money`/`topn`）换成 `view.Pct`/`view.Money`/`view.TopN` 并删本地拷贝 —— Task 6 收敛了图表半边但留下了这半边（两份逐字节相同；KV 别名已使其可直接替换，report 无测试直接调用它们）。同一失败模式："只修一份"。顺带：`SuppressedCSS` 命名偏窄（还装着 `.up/.down/.lens`），届时可一并改名；view_test 里两个 outlier 测试的重叠可折叠。
 9. `report.salaryMedian`/`salaryByRole` 逐字重写了 `metric.disclosedSalary` 的过滤条件与 `(min+max)/2` 中点公式 —— 与 7/8 同一漂移风险，但那两项都不覆盖这个谓词；`disclosedSalary` 目前未导出，收敛时需一并导出或把 report 的薪资聚合整体改走 metric 层。顺带优化项：per-slug 溢价循环（30 次查询）可照 `entryShare` 的单查询 GROUP BY 形状收成 1 次——`entryShare` 已证明该 join 形状可行。
+10. 主导航收敛为 `view.Nav(active string)` —— 现有 4 份手写 `<nav>`（render.go、daily_render.go ×2、view/tech.go），`.nav` 样式已在 view/css.go 收敛而标记仍复制（与待办 8 同一"收敛一半"病）；A-2 加 `/pay`/`companies` 前先做，否则 6 份要锁步改。形状参照 `lensNav`/`writeLensLink` 既有模式。另：`redirectDailyDate` 无未来日期检查（远期日期 301 进必然的 404，无害绕路，下次动这个函数时顺带修）。
