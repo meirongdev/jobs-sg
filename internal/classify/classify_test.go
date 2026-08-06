@@ -135,3 +135,27 @@ func TestCompanyTypeRules(t *testing.T) {
 		}
 	}
 }
+
+// TestSeniorityLevelsIsTheRankingsSingleSource pins that the exported
+// vocabulary and the internal ranking cannot disagree: /pay renders rows in
+// SeniorityLevels order and relies on it matching the ranking classify uses
+// when a title and a stated experience conflict.
+func TestSeniorityLevelsIsTheRankingsSingleSource(t *testing.T) {
+	levels := SeniorityLevels()
+	if len(levels) != 7 {
+		t.Fatalf("levels = %v, want 7 entries", levels)
+	}
+	for i, l := range levels {
+		if got := seniorityRank(l); got != i {
+			t.Errorf("seniorityRank(%q) = %d, want %d (its index)", l, got, i)
+		}
+	}
+	if got := seniorityRank("Nonexistent"); got != -1 {
+		t.Errorf("unknown level rank = %d, want -1", got)
+	}
+	// Mutating the returned slice must not corrupt the package's own order.
+	levels[0] = "Tampered"
+	if SeniorityLevels()[0] != "Intern" {
+		t.Error("SeniorityLevels must hand back a copy")
+	}
+}

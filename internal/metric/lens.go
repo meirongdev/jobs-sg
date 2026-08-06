@@ -120,3 +120,8 @@ func (l Lens) Label() string {
 	}
 	return strings.Join(parts, " · ")
 }
+
+// RoleOnly drops the experience band, keeping the role family. The /pay
+// experience ladder is itself the experience breakdown, so filtering it by the
+// experience lens would collapse it to a single rung.
+func (l Lens) RoleOnly() Lens { return Lens{Role: l.Role} }

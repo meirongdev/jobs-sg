@@ -8,6 +8,7 @@ package classify
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/meirongdev/jobs-sg/internal/mcf"
@@ -93,25 +94,16 @@ var seniorityTitleRe = []struct {
 	{regexp.MustCompile(`(?i)\bsenior\b`), "Senior"},
 }
 
-func seniorityRank(s string) int {
-	switch s {
-	case "Intern":
-		return 0
-	case "Junior":
-		return 1
-	case "Mid":
-		return 2
-	case "Senior":
-		return 3
-	case "Staff+":
-		return 4
-	case "Lead":
-		return 5
-	case "Manager":
-		return 6
-	}
-	return -1
-}
+// seniorityLevels is the seniority vocabulary in career order. It is the one
+// definition: seniorityRank derives from it, and SeniorityLevels exports it for
+// the pages that render seniority rows, so a level added here appears
+// everywhere instead of being re-listed per consumer.
+var seniorityLevels = []string{"Intern", "Junior", "Mid", "Senior", "Staff+", "Lead", "Manager"}
+
+// SeniorityLevels returns the seniority vocabulary in career order.
+func SeniorityLevels() []string { return slices.Clone(seniorityLevels) }
+
+func seniorityRank(s string) int { return slices.Index(seniorityLevels, s) }
 
 // Classifier holds the SSOC -> role_family taxonomy.
 type Classifier struct {

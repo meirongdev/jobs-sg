@@ -140,3 +140,22 @@ func TestWhereIgnoresValuesThatBypassedParseLens(t *testing.T) {
 		t.Errorf("bypassed lens produced SQL %q, want empty", got)
 	}
 }
+
+func TestRoleOnlyDropsTheExperienceBand(t *testing.T) {
+	// The /pay experience ladder IS the experience dimension, so it must not be
+	// filtered by the experience lens — only by role.
+	l, err := ParseLens("3-5", "Backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ro := l.RoleOnly()
+	if ro.Exp != "" || ro.Role != "Backend" {
+		t.Errorf("RoleOnly() = %+v, want only Role=Backend", ro)
+	}
+	if strings.Contains(ro.Where(), "min_years_exp") {
+		t.Errorf("RoleOnly().Where() = %q, must not constrain experience", ro.Where())
+	}
+	if l.Exp != "3-5" {
+		t.Error("RoleOnly must not mutate its receiver")
+	}
+}
