@@ -107,6 +107,7 @@ const techTmpl = `<!DOCTYPE html>
 
 <h2>3. Salary premium and entry-friendliness</h2>
 <p class="note">Premium compares the median advertised monthly salary of postings mentioning a technology against the overall median, over the trailing 90 days. Baseline: <strong>{{money .MedianAll}}</strong> from {{.SalaryN}} of {{.SalaryTotal}} SWE postings — only {{pct .TransparencyPct}} disclose a monthly salary, and every figure here describes that disclosing subset. Entry-friendly is computed over the same 90-day window. Premium mixes seniority in (senior roles name more infrastructure); pick an experience band above to compare within one.</p>
+{{if .Ranked}}
 <table>
 <tr><th>Technology</th><th>Kind</th><th>Postings</th><th>Share</th><th>Salary premium</th><th>Entry-friendly</th></tr>
 {{range .Ranked}}<tr>
@@ -115,6 +116,7 @@ const techTmpl = `<!DOCTYPE html>
   <td>{{pct .EntryFriendly}}</td>
 </tr>{{end}}
 </table>
+{{else}}<p class="mut">No enriched postings in {{.Week}}.</p>{{end}}
 
 <div class="foot">Numbers computed by SQL from public MyCareersFuture data; data is refreshed daily, so it lags the live market by up to 24h. Methodology: docs/03-data-model.md · <a href="/ops">data freshness</a> · Compliance: aggregate statistics only, no personal data.</div>
 </div></body></html>`

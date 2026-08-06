@@ -71,3 +71,19 @@ func TestTechPageShowsSuppressionInsteadOfZero(t *testing.T) {
 		t.Errorf("/tech must explain short history, got:\n%s", body)
 	}
 }
+
+func TestTechPageLensChangesTheRenderedPage(t *testing.T) {
+	// The cache-key test alone can't catch a handler that computes the right
+	// key but drops the lens before metric.TechReportFor: every byte of the
+	// body flows from that call, so two lenses must yield different bodies
+	// (picker highlight + header label) even on a thin fixture.
+	s := setupWeb(t)
+	all := get(t, s, "/tech").Body.String()
+	lensed := get(t, s, "/tech?exp=0-2").Body.String()
+	if all == lensed {
+		t.Error("lensed page identical to unlensed; the lens is not reaching the report")
+	}
+	if !strings.Contains(lensed, "0-2 yrs") {
+		t.Error("lensed page missing its own label")
+	}
+}
