@@ -1,6 +1,9 @@
 package metric
 
-import "math"
+import (
+	"math"
+	"sort"
+)
 
 // Percentile returns the nearest-rank value at q (0..1) over a slice sorted
 // ascending.
@@ -12,6 +15,13 @@ import "math"
 func Percentile(sorted []float64, q float64) float64 {
 	if len(sorted) == 0 {
 		return 0
+	}
+	// A caller bug, not a data condition: every producer sorts (SQL ORDER BY,
+	// sort.Float64s). An unsorted slice would yield a plausible-but-wrong
+	// number — the exact failure this package exists to prevent — so fail
+	// loud at the moment the bug is introduced instead of when a user notices.
+	if !sort.Float64sAreSorted(sorted) {
+		panic("metric.Percentile: input not sorted ascending")
 	}
 	i := int(math.Floor(q * float64(len(sorted))))
 	if i >= len(sorted) {

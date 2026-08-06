@@ -9,6 +9,9 @@ func TestSampleCoverageSuppressesBelowThreshold(t *testing.T) {
 	if c := SampleCoverage(5, MinSalarySamplesPerCell); c.Suppressed {
 		t.Errorf("n=5 -> %+v, want not suppressed", c)
 	}
+	if c := SampleCoverage(4, MinSalarySamplesPerCell); c.Samples != 4 {
+		t.Errorf("Samples = %d, want the real count 4, not the threshold", c.Samples)
+	}
 }
 
 func TestHistoryCoverageSuppressesShortHistory(t *testing.T) {
@@ -17,6 +20,9 @@ func TestHistoryCoverageSuppressesShortHistory(t *testing.T) {
 	}
 	if c := HistoryCoverage(5, MinWeeksForMomentum); c.Suppressed {
 		t.Errorf("5 of 5 weeks -> %+v, want not suppressed", c)
+	}
+	if c := HistoryCoverage(4, MinWeeksForMomentum); c.WeeksAvailable != 4 || c.WeeksRequired != MinWeeksForMomentum {
+		t.Errorf("payload = have %d need %d, want have 4 need %d", c.WeeksAvailable, c.WeeksRequired, MinWeeksForMomentum)
 	}
 }
 
@@ -62,4 +68,16 @@ func TestPercentileEmptyAndBounds(t *testing.T) {
 	if got := Percentile([]float64{1, 2, 3, 4}, 1.0); got != 4 {
 		t.Errorf("q=1.0 must clamp to the max, got %v", got)
 	}
+	if got := Percentile([]float64{1, 2, 3, 4}, -0.5); got != 1 {
+		t.Errorf("q<0 must clamp to the minimum, got %v", got)
+	}
+}
+
+func TestPercentilePanicsOnUnsortedInput(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("unsorted input must panic, not return a plausible number")
+		}
+	}()
+	Percentile([]float64{3, 1, 2}, 0.5)
 }

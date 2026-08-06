@@ -30,6 +30,11 @@ const EntryPredicate = `((j.min_years_exp IS NOT NULL AND j.min_years_exp <= 2)
 // Coverage says whether a number is trustworthy enough to show, and why not
 // when it is not. A suppressed value renders as "—(n=3)" or an explanation,
 // never as 0 — a fabricated zero is worse than an admitted gap.
+//
+// Construct via SampleCoverage/HistoryCoverage — a hand-built Coverage can
+// express states the renderer must never show (e.g. suppressed with no
+// reason, which would fall through to the sample default and print the
+// fabricated —(n=0)).
 type Coverage struct {
 	Samples        int
 	WeeksAvailable int
@@ -39,9 +44,9 @@ type Coverage struct {
 }
 
 // SampleCoverage suppresses a value computed from fewer than min observations.
-func SampleCoverage(n, min int) Coverage {
+func SampleCoverage(n, threshold int) Coverage {
 	c := Coverage{Samples: n}
-	if n < min {
+	if n < threshold {
 		c.Suppressed, c.Reason = true, ReasonSample
 	}
 	return c
