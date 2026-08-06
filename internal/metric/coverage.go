@@ -43,7 +43,7 @@ type Coverage struct {
 	Reason         string
 }
 
-// SampleCoverage suppresses a value computed from fewer than min observations.
+// SampleCoverage suppresses a value computed from fewer than threshold observations.
 func SampleCoverage(n, threshold int) Coverage {
 	c := Coverage{Samples: n}
 	if n < threshold {
