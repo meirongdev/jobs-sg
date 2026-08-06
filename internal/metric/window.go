@@ -21,7 +21,8 @@ const RollingDays = 90
 // ("2026-08-03"), and comparing a date-only string against these bounds is
 // correct ONLY because the bound's UTC calendar date is never an in-window SGT
 // date. Do NOT "simplify" any bound to UTC midnight — it shifts the window by
-// a day. Pinned by report.TestWeekWindowDateOnlyBoundaries.
+// a day. Pinned by TestArgsRenderDateOnlySafeBounds here and, for the parallel
+// report.WeekBounds implementation, by report.TestWeekWindowDateOnlyBoundaries.
 type Window struct {
 	Start time.Time
 	End   time.Time

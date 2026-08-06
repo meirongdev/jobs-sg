@@ -65,3 +65,31 @@ func TestRollingEndsAtTodaysSGTDayEnd(t *testing.T) {
 		t.Errorf("span = %vh, want %vh", got, 90*24)
 	}
 }
+
+// TestArgsRenderDateOnlySafeBounds pins the property the Window doc comment
+// argues: bounds render as RFC3339 strings whose UTC calendar date is never an
+// in-window SGT date, so comparing them against the live API's date-only
+// posting_date ("2026-08-03") stays correct at every edge. Mirrors
+// report.TestWeekWindowDateOnlyBoundaries, which covers only the parallel
+// report.WeekBounds implementation, not this type.
+func TestArgsRenderDateOnlySafeBounds(t *testing.T) {
+	w := ISOWeekOf(time.Date(2026, 8, 3, 0, 0, 0, 0, SGT)) // 2026-W32
+	args := w.Args()
+	start, end := args[0].(string), args[1].(string)
+	if start != "2026-08-02T16:00:00Z" || end != "2026-08-09T16:00:00Z" {
+		t.Fatalf("bounds = %s .. %s, want 2026-08-02T16:00:00Z .. 2026-08-09T16:00:00Z", start, end)
+	}
+	// String comparison against date-only values, exactly as the SQL does it:
+	// each boundary day must stay inside its own week.
+	for date, in := range map[string]bool{
+		"2026-08-02": false, // Sunday before the week
+		"2026-08-03": true,  // Monday, first day
+		"2026-08-09": true,  // Sunday, last day
+		"2026-08-10": false, // Monday of the next week
+	} {
+		got := date >= start && date < end
+		if got != in {
+			t.Errorf("date-only %s in window = %v, want %v", date, got, in)
+		}
+	}
+}
