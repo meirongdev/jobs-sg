@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/meirongdev/jobs-sg/internal/view"
 )
 
 // Templates are parsed once at init, not per request: a syntax error then
@@ -19,8 +21,8 @@ var (
 
 func newDailyTemplate(name string) *template.Template {
 	return template.New(name).Funcs(template.FuncMap{
-		"bar":    barSVG,
-		"col":    columnSVG,
+		"bar":    view.Bar,
+		"col":    view.Column,
 		"fmtKV":  fmtKV,
 		"pill":   statusPill,
 		"kinds":  kindBadges,
@@ -113,93 +115,7 @@ func runAgo(r *RunRow) string {
 	return fmt.Sprintf("%s · %s", r.Kind, when.In(sgt).Format("2006-01-02 15:04 SGT"))
 }
 
-// chartScale picks the y-axis maximum, ignoring a lone outlier.
-//
-// The first-run baseline scan stores the entire live market (~86k postings) on
-// a single day, so scaling to the true maximum renders every ordinary day as a
-// 1px stub for the next 30 days. When the top value dwarfs the runner-up, the
-// axis follows the runner-up and the outlier column is drawn clipped.
-func chartScale(kvs []KV) float64 {
-	top, second := 0.0, 0.0
-	for _, kv := range kvs {
-		switch {
-		case kv.Value > top:
-			top, second = kv.Value, top
-		case kv.Value > second:
-			second = kv.Value
-		}
-	}
-	if second > 0 && top > 3*second {
-		return second
-	}
-	if top == 0 {
-		return 1
-	}
-	return top
-}
-
-// columnSVG draws a time-series column chart (dates left to right). barSVG is
-// horizontal and caps at ~11 rows, which cannot show a 30-day trend.
-func columnSVG(kvs []KV, unit string) template.HTML {
-	if len(kvs) == 0 {
-		return template.HTML(`<p class="mut">No data yet.</p>`)
-	}
-	const (
-		plotH   = 120
-		baseY   = 140
-		leftPad = 34
-	)
-	// widen the columns when there are few days so a week of history is not
-	// drawn as a 160px sliver, and keep them legible for a 90-day window
-	step := 700 / len(kvs)
-	step = min(max(step, 17), 48)
-	width := leftPad + len(kvs)*step + 10
-	scale := chartScale(kvs)
-	labelEvery := (len(kvs) + 7) / 8
-	if labelEvery < 1 {
-		labelEvery = 1
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, `<svg viewBox="0 0 %d 170" style="max-width:%dpx" xmlns="http://www.w3.org/2000/svg" class="chart" role="img" aria-label="%s per day">`,
-		width, width, template.HTMLEscapeString(unit))
-	// axis + max gridline
-	fmt.Fprintf(&b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#334155"/>`, leftPad-4, baseY, width-6, baseY)
-	fmt.Fprintf(&b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#334155" stroke-dasharray="2 3"/>`,
-		leftPad-4, baseY-plotH, width-6, baseY-plotH)
-	fmt.Fprintf(&b, `<text x="0" y="%d" class="lab">%d</text>`, baseY-plotH+4, int(scale))
-	fmt.Fprintf(&b, `<text x="0" y="%d" class="lab">0</text>`, baseY+4)
-
-	for i, kv := range kvs {
-		x := leftPad + i*step
-		h := int(float64(plotH) * (kv.Value / scale))
-		if h < 1 && kv.Value > 0 {
-			h = 1
-		}
-		// a column past the scale is drawn clipped, in a lighter fill, with its
-		// real value written above it
-		fill, clipped := "#2563eb", kv.Value > scale
-		if clipped {
-			h, fill = plotH, "#7c3aed"
-		}
-		fmt.Fprintf(&b, `<rect x="%d" y="%d" width="%d" height="%d" rx="1" fill="%s"><title>%s: %d</title></rect>`,
-			x, baseY-h, step-5, h, fill, template.HTMLEscapeString(kv.Key), int(kv.Value))
-		if clipped {
-			fmt.Fprintf(&b, `<text x="%d" y="%d" class="lab" text-anchor="middle" font-size="10">%d</text>`,
-				x+(step-5)/2, baseY-plotH-4, int(kv.Value))
-		}
-		// label every Nth column plus the last one, skipping any that would
-		// collide with that last label
-		if (i%labelEvery == 0 && len(kvs)-1-i >= labelEvery/2) || i == len(kvs)-1 {
-			fmt.Fprintf(&b, `<text x="%d" y="%d" class="lab" text-anchor="middle" font-size="10">%s</text>`,
-				x+(step-5)/2, baseY+16, template.HTMLEscapeString(kv.Key))
-		}
-	}
-	b.WriteString(`</svg>`)
-	return template.HTML(b.String())
-}
-
-// dailyCSS extends baseCSS with the bits only the daily pages need.
+// dailyCSS extends view.BaseCSS with the bits only the daily pages need.
 const dailyCSS = `
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
 .s-success{background:#064e3b;color:#6ee7b7}.s-partial{background:#78350f;color:#fcd34d}
@@ -207,14 +123,13 @@ const dailyCSS = `
 .s-idle{background:#334155;color:#94a3b8}
 .kind{display:inline-block;background:#334155;color:#cbd5e1;border-radius:4px;padding:1px 6px;margin-right:4px;font-size:12px;white-space:nowrap}
 .wide{max-width:1160px}
-.mut{color:var(--mut)}.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .scroll table{min-width:840px}table.detail td,table.detail th{padding:5px 8px;font-size:14px;white-space:nowrap}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 tr.idle td{color:var(--mut)}tr:hover td{background:#1e293b}
 td a{color:#60a5fa;text-decoration:none}td a:hover{text-decoration:underline}
 .swe{color:#6ee7b7;font-weight:600}
 .pager{margin-top:18px;font-size:14px}.pager a{color:#60a5fa;text-decoration:none;margin-right:14px}
-.note{color:var(--mut);font-size:13px;margin:6px 0 0}
 `
 
 const dailyFoot = `<div class="foot">Counters come from <code>ingest_run</code>; stored/closed counts from <code>job</code>, bucketed by SGT calendar day.
@@ -227,7 +142,7 @@ const dailyTmpl = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Daily Crawl Stats · jobs-sg</title>
-<style>` + baseCSS + dailyCSS + `</style>
+<style>` + view.BaseCSS + view.SuppressedCSS + dailyCSS + `</style>
 </head>
 <body><div class="wrap wide">
 <h1>Daily Crawl Statistics</h1>
@@ -281,7 +196,7 @@ const dayTmpl = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Crawl Detail {{.Date}} · jobs-sg</title>
-<style>` + baseCSS + dailyCSS + `</style>
+<style>` + view.BaseCSS + view.SuppressedCSS + dailyCSS + `</style>
 </head>
 <body><div class="wrap wide">
 <h1>Crawl Detail — {{.Date}}</h1>
