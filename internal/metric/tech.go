@@ -64,10 +64,47 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 	if err != nil {
 		return nil, err
 	}
+	// momentum: baseline is the 4 completed weeks before the reported one. The
+	// in-progress week is never included — it is always partial data and would
+	// show every technology crashing (spec §3.1).
+	baseline := PrevWeeks(week, MinWeeksForMomentum-1)
+	shares := make([]map[string]float64, 0, len(baseline))
+	available := 0
+	if r.Denom > 0 {
+		available++
+	}
+	for _, bw := range baseline {
+		denom, err := enrichedCount(ctx, db, bw, lens)
+		if err != nil {
+			return nil, err
+		}
+		if denom == 0 {
+			continue
+		}
+		available++
+		counts, _, err := techCounts(ctx, db, bw, lens)
+		if err != nil {
+			return nil, err
+		}
+		m := make(map[string]float64, len(counts))
+		for slug, n := range counts {
+			m[slug] = float64(n) / float64(denom)
+		}
+		shares = append(shares, m)
+	}
+	r.History = HistoryCoverage(available, MinWeeksForMomentum)
 	for slug, n := range counts {
 		s := TechStat{Slug: slug, Kind: kinds[slug], Count: n}
 		if r.Denom > 0 {
 			s.Share = float64(n) / float64(r.Denom)
+		}
+		s.Momentum = momentumCoverage(n, r.History)
+		if !s.Momentum.Suppressed {
+			var sum float64
+			for _, m := range shares {
+				sum += m[slug]
+			}
+			s.MomentumPP = s.Share - sum/float64(len(shares))
 		}
 		r.Ranked = append(r.Ranked, s)
 	}
@@ -80,6 +117,7 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 	if len(r.Ranked) > RankedTechLimit {
 		r.Ranked = r.Ranked[:RankedTechLimit]
 	}
+	r.Rising, r.Falling = momentumBoards(r.Ranked)
 	return r, nil
 }
 
@@ -119,4 +157,39 @@ func techCounts(ctx context.Context, db *store.DB, w Window, lens Lens) (map[str
 		counts[slug], kinds[slug] = n, kind
 	}
 	return counts, kinds, rows.Err()
+}
+
+// momentumCoverage suppresses a technology's momentum when the page lacks
+// history, or when the technology is too thin for a share delta to mean
+// anything (a 1 -> 3 posting swing must not top the rising board).
+func momentumCoverage(count int, history Coverage) Coverage {
+	if history.Suppressed {
+		return history
+	}
+	return SampleCoverage(count, MinTechCountForMomentum)
+}
+
+// MomentumBoardLimit is how many technologies each momentum board shows.
+const MomentumBoardLimit = 10
+
+// momentumBoards splits the unsuppressed rows into rising and falling boards.
+func momentumBoards(ranked []TechStat) (rising, falling []TechStat) {
+	live := make([]TechStat, 0, len(ranked))
+	for _, s := range ranked {
+		if !s.Momentum.Suppressed {
+			live = append(live, s)
+		}
+	}
+	sort.SliceStable(live, func(i, j int) bool { return live[i].MomentumPP > live[j].MomentumPP })
+	for _, s := range live {
+		if s.MomentumPP > 0 && len(rising) < MomentumBoardLimit {
+			rising = append(rising, s)
+		}
+	}
+	for i := len(live) - 1; i >= 0; i-- {
+		if live[i].MomentumPP < 0 && len(falling) < MomentumBoardLimit {
+			falling = append(falling, live[i])
+		}
+	}
+	return rising, falling
 }
