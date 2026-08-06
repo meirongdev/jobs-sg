@@ -1674,6 +1674,8 @@ git commit -m "feat(metric): rank weekly tech demand against an enriched denomin
 ```
 
 > 执行记录 2026-08-07：首次执行 BLOCKED——`TestEnrichedDenominatorExcludesBacklog` 的探针 `SELECT uuid FROM job WHERE is_swe=1 LIMIT 1` 无周约束，fixture 按时间序写入使其结构性选中 2026-W27 的岗位（EQP 显示走 `idx_job_exp`，与 rowid 序皆落在最早周），删其富化记录不可能影响 W32 分母；`tech.go` 输出 51 与 fixture 逐日 SWE 计数（8+8+7+7+7+7+7）吻合，实现无误。已按上文把探针绑定到 `LastCompletedWeek(fixtureNow)` 窗口。教训同 Task 6：plan 里"随手取一行"的测试代码必须显式声明取样约束。
+>
+> 执行记录（补）：修正后落地 `4f18fb0`。质量 review 一条 Important 以 `58eec4c` 跟进：`seedFixture` 每次调用经生产 `UpsertJob`/`WriteRuleTech` 重放 360 行 ≈ 720 次自提交事务（DELETE journal 每次 fsync），12 个调用点使 metric 成为全仓最慢包（5.2s）且随 A-2 复合增长。改为 `TestMain` 建一次模板库 + 每测试文件拷贝（管线保真与突变隔离都保留），实测 4.6s → 0.67s。同批钉住 `Share == Count/Denom` 恒等式（此前把除法写错任何测试都不红）。记录不动：`techCounts` 内联谓词与 `swePosted` 的漂移风险——继承自 report/metrics.go 的既有风格，query builder 违背 docs/01 §4 的 SQL 可审计原则。
 
 ---
 
@@ -1854,12 +1856,19 @@ Expected: FAIL — `r.History` 为零值、`Rising` 为空、thin/thick 断言�
 		}
 ```
 
-在函数末尾 `return r, nil` 之前加榜单构建：
+榜单构建放在**排序之后、`RankedTechLimit` 截断之前**（截断只管需求表的显示长度；榜单资格 spec §3.1 只有两道门——周计数 ≥10、历史 ≥5 周——截断后再建榜等于加了第三道暗门，让"过了动量门槛但挤不进需求 top-30"的新兴技术整页不可见）：
 
 ```go
+	sort.SliceStable(r.Ranked, func(i, j int) bool { ... })   // 既有排序不动
+	// Boards draw from the FULL universe: eligibility is count and history,
+	// never demand rank. Built before the display cap on purpose.
 	r.Rising, r.Falling = momentumBoards(r.Ranked)
-	return r, nil
+	if len(r.Ranked) > RankedTechLimit {
+		r.Ranked = r.Ranked[:RankedTechLimit]
+	}
 ```
+
+（Task 9 的溢价块仍在截断之后对 30 条 `Ranked` 就地补字段——榜单持有的是截断前的结构体拷贝，模板的升降表只渲染 Slug/Share/Change/Count，不读溢价字段，互不影响。）
 
 在文件末尾追加两个辅助函数：
 
@@ -1911,6 +1920,8 @@ Expected: PASS
 git add internal/metric/tech.go internal/metric/tech_momentum_test.go
 git commit -m "feat(metric): add four-week tech momentum in percentage points"
 ```
+
+> 执行记录 2026-08-07：已执行（`84ff8a2`，逐字节一致）。质量 review 两条 Important 以补充提交跟进：①初版把榜单构建放在 top-30 截断之后——给榜单资格加了 spec §3.1 之外的第三道暗门（过动量门槛但不进需求 top-30 的技术整页不可见）；上文已改为截断前构建。②四个测试对"share 减 4 周均值"与"share 减单一周"两种公式无区分度（把 `sum/len(shares)` 换成 `shares[last][slug]` 全套照绿）——补一个单周扰动的精确值测试：只给 W28 的每个 SWE 岗位附加 kubernetes，期望动量恰好偏移 (1−share₂₈)/4，单周公式给不出这个数。两条 Minor 同批：history 抑制路径保留每技术真实 `Samples`（`h := history; h.Samples = count`）；falling 榜倒序遍历补一行注释。
 
 ---
 
@@ -2189,6 +2200,8 @@ Expected: PASS
 git add internal/metric/tech.go internal/metric/tech_pay_test.go
 git commit -m "feat(metric): add lens-aware salary premium and entry-friendliness per tech"
 ```
+
+> 执行记录 2026-08-07：已执行（`637d7c6`，逐字节一致，首跑无缺陷）。质量 review 两条 Important 以 `84d1c58` 跟进：①溢价符号约定无测试（写反成 `1−x/y` 四个测试照绿）——补 `TestPremiumSignFollowsPay`：受控三层薪资种子（20×4000 + 21×7000 压舱 + 20×10000；均分两组会让上中位数恰落高薪组、溢价退化为 0），断言高薪技术 >0、低薪 <0；②`TransparencyPct` 恒等式补断言。Minor：`salarySample` 的 `args append` 处补"lens.Where() 不产生绑定占位符"不变量注释；"先建后弃"的双形态函数结构记录不改（纯写法偏好）。口径重复（`disclosedSalary` vs report.salaryMedian）入 A-2 待办第 9 项。
 
 ---
 
@@ -2485,6 +2498,7 @@ git commit -m "feat(web): serve /tech with lens-aware demand, momentum and premi
 - Modify: `internal/report/daily_render.go`
 - Modify: `internal/report/render.go`
 - Modify: `internal/web/web_test.go`
+- Modify: `internal/report/daily_test.go`（**仅**两处字面 href 断言随路径迁移：`TestRenderDailyPagesAreSelfContained` 断言了 `/daily/{date}` 链接字符串）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -2621,6 +2635,16 @@ func (s *Server) redirectDailyDate(w http.ResponseWriter, r *http.Request) {
 </div>
 ```
 
+`dailyTmpl` 概览表的日期下钻链接同样改（301 是给外部书签的，自己页面不吃跳转）：
+
+```go
+  <td><a href="/ops/{{.Date}}">{{.Date}}</a></td>
+```
+
+`internal/report/daily_test.go` 的 `TestRenderDailyPagesAreSelfContained` 断言了这两处的字面 href——随迁移更新两处字符串字面量（`/daily/2026-08-04` → `/ops/2026-08-04`，`/daily/2026-08-03` → `/ops/2026-08-03`），其余断言不动。
+
+> 执行记录 2026-08-07：首次执行 BLOCKED——初版计划漏了 `TestRenderDailyPagesAreSelfContained` 对 `/daily/{date}` 字面 href 的断言（与 Task 6 同根因：包内测试绑定实现细节），"删路径 + 全绿 + 不动该测试"互斥。裁定 sweep-clean 方案（概览下钻链接一并迁 `/ops`，301 只服务外部书签），本节已回写。修正后落地 `8d2af67`：路由 301 保 query、六文件、全绿；实现者另按同文件清理原则更新了 `daily_render.go` 两处 doc 注释（已追认）。散文注释里的 `/daily` 残留（cache.go/daily.go/store 三处文件）随 A-2 待办第 5 项清理。
+
 `internal/report/render.go` 周报模板的 `<nav>` 同样改（原来是 `Weekly report` + `Daily crawl stats` 两项）：
 
 ```go
@@ -2673,11 +2697,12 @@ Expected: 改动只落在本计划「文件结构」表列出的文件上；`doc
 
 ## Phase A-2 待办（下一份计划）
 
-1. `/pay`：分位数网格（资历 × 方向）、经验阶梯（含"未标注"档）、薪资透明率 —— spec §3.3。
+1. `/pay`：分位数网格（资历 × 方向）、经验阶梯（含"未标注"档）、薪资透明率 —— spec §3.3。**前置**：给 `/pay` 加第三镜头维度前，`view` 里 `lensNav` 的四处 `metric.Lens{...}` 从头构造字面量必须改成 copy-and-override（`l := active; l.Exp = band`）——否则漏写一个字段就会在点击无关控件时静默重置该维度。顺带评估 `EntryFriendly` 是否需要自己的 Coverage（Task 9 模型未带，模板旁的 Premium 有抑制它没有）。
 2. `/`：市场快报卡片 + 12 周新增趋势 + 入门岗绝对数 —— spec §3.4 的首屏部分。
 3. `/companies`：持续招聘者、岗位寿命（需先给 fixture 灌 `closed_at`——它不是 MCF JSON 字段，只能在测试里写库）、竞争度分层（日均投递归一化）—— spec §3.5、§3.6。
 4. 周报按新顺序重排 + Data Quality 收为页脚一行 + Telegram 改求职者口播 —— spec §4.5。
-5. `docs/01-requirements.md` §1/§2/§5 按 spec §1.1 更新。
+5. `docs/01-requirements.md` §1/§2/§5 按 spec §1.1 更新；同一批做 `/daily` 残留引述清理——`docs/02-design.md`、`docs/07-prd.md`、`docs/08-bdd.md`（活文档，Gherkin 路径须跟实现）以及代码注释里的提及（`internal/web/cache.go:11`、`internal/report/daily.go` 四处、`internal/store/{db.go,db_test.go,schema.go}` 各一处——均为散文注释，非路由）。
 6. 物化 `tech_share` 与 `swe_enriched` 到 `weekly_metric` —— spec §3.1 的审计载体（口径变更全量重算的依据），随第 4 项一起落在 cmd/report；展示路径不变，仍走现算。
 7. `internal/report` 的窗口助手（`sgt`/`WeekBounds`/`DayBounds`/`ISOWeekLabel`）收敛到 `metric.Window` —— 两份实现已有行为差异（report 版信任调用者预本地化，metric 版自己 `.In(SGT)`），不收敛迟早有人只修一份的边界 bug。随第 4 项周报重排一起做。
 8. `internal/report` 的取值格式化助手（`pct`/`money`/`topn`）换成 `view.Pct`/`view.Money`/`view.TopN` 并删本地拷贝 —— Task 6 收敛了图表半边但留下了这半边（两份逐字节相同；KV 别名已使其可直接替换，report 无测试直接调用它们）。同一失败模式："只修一份"。顺带：`SuppressedCSS` 命名偏窄（还装着 `.up/.down/.lens`），届时可一并改名；view_test 里两个 outlier 测试的重叠可折叠。
+9. `report.salaryMedian`/`salaryByRole` 逐字重写了 `metric.disclosedSalary` 的过滤条件与 `(min+max)/2` 中点公式 —— 与 7/8 同一漂移风险，但那两项都不覆盖这个谓词；`disclosedSalary` 目前未导出，收敛时需一并导出或把 report 的薪资聚合整体改走 metric 层。顺带优化项：per-slug 溢价循环（30 次查询）可照 `entryShare` 的单查询 GROUP BY 形状收成 1 次——`entryShare` 已证明该 join 形状可行。
