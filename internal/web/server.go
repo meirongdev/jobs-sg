@@ -47,6 +47,7 @@ func (s *Server) Close() error { return s.db.Close() }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.handleRoot)
+	mux.HandleFunc("GET /tech", s.handleTech)
 	mux.HandleFunc("GET /w/{week}", s.handleWeek)
 	mux.HandleFunc("GET /daily", s.handleDaily)
 	mux.HandleFunc("GET /daily/{date}", s.handleDailyDate)
