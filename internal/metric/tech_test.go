@@ -32,6 +32,9 @@ func TestTechDemandRanksTheReportedWeek(t *testing.T) {
 		if s.Share < 0 || s.Share > 1 {
 			t.Errorf("%s share = %v, want 0..1", s.Slug, s.Share)
 		}
+		if r.Denom > 0 && s.Share != float64(s.Count)/float64(r.Denom) {
+			t.Errorf("%s share = %v, want Count/Denom = %v", s.Slug, s.Share, float64(s.Count)/float64(r.Denom))
+		}
 	}
 }
 
