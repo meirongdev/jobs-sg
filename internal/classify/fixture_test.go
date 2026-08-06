@@ -63,8 +63,10 @@ func TestFixtureReplay(t *testing.T) {
 	if err := sc.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if count != 100 {
-		t.Fatalf("fixture count = %d, want 100", count)
+	// 360 = 6 个完整 ISO 周 × 60 行（scripts/genfixture）。动量指标需要 5 个已完成
+	// 周的历史，7 天的旧 fixture 撑不起来。
+	if count != 360 {
+		t.Fatalf("fixture count = %d, want 360", count)
 	}
 	// sanity: the 100-row mix (22 unique rows cycled) has both candidates and
 	// non-candidates
