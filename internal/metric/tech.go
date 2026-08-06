@@ -114,6 +114,9 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 		}
 		return r.Ranked[i].Slug < r.Ranked[j].Slug
 	})
+	// Boards draw from the FULL universe: eligibility is count and history,
+	// never demand rank. Built before the display cap on purpose.
+	r.Rising, r.Falling = momentumBoards(r.Ranked)
 	if len(r.Ranked) > RankedTechLimit {
 		r.Ranked = r.Ranked[:RankedTechLimit]
 	}
@@ -149,7 +152,6 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 			r.Ranked[i].PremiumPct = Percentile(vals, 0.5)/r.MedianAll - 1
 		}
 	}
-	r.Rising, r.Falling = momentumBoards(r.Ranked)
 	return r, nil
 }
 
@@ -196,7 +198,11 @@ func techCounts(ctx context.Context, db *store.DB, w Window, lens Lens) (map[str
 // anything (a 1 -> 3 posting swing must not top the rising board).
 func momentumCoverage(count int, history Coverage) Coverage {
 	if history.Suppressed {
-		return history
+		// Keep the per-tech sample count even when page-level history is what
+		// suppresses: a future "why is this suppressed" surface needs it.
+		h := history
+		h.Samples = count
+		return h
 	}
 	return SampleCoverage(count, MinTechCountForMomentum)
 }
@@ -218,6 +224,8 @@ func momentumBoards(ranked []TechStat) (rising, falling []TechStat) {
 			rising = append(rising, s)
 		}
 	}
+	// Walk the same desc sort backwards for ascending order instead of
+	// re-sorting.
 	for i := len(live) - 1; i >= 0; i-- {
 		if live[i].MomentumPP < 0 && len(falling) < MomentumBoardLimit {
 			falling = append(falling, live[i])

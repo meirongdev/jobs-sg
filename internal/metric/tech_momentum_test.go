@@ -84,6 +84,62 @@ func TestMomentumSuppressedWhenHistoryIsShort(t *testing.T) {
 	}
 }
 
+func TestMomentumIsAgainstTheFourWeekMean(t *testing.T) {
+	ctx := context.Background()
+	db := seedFixture(t)
+	// Perturb exactly ONE baseline week: attach kubernetes to every SWE
+	// posting of W28. Under the correct formula the momentum moves by a
+	// quarter of that week's share change; a "versus last baseline week"
+	// regression would not move at all (W31 is untouched).
+	week := LastCompletedWeek(fixtureNow)
+	baseline := PrevWeeks(week, MinWeeksForMomentum-1)
+	if _, err := db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO job_tech(job_uuid, tech_slug, tech_kind, source)
+		SELECT j.uuid, 'kubernetes', 'tool', 'rule' FROM job j
+		WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`,
+		baseline[0].Args()...); err != nil {
+		t.Fatal(err)
+	}
+	r, err := TechReportFor(ctx, db, fixtureNow, Lens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Recompute the expectation independently, week by week, from the DB.
+	share := func(w Window) float64 {
+		var denom, count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) `+swePosted+` `+enrichedPredicate, w.Args()...).Scan(&denom); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRowContext(ctx, `
+			SELECT count(DISTINCT j.uuid) FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
+			WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ? AND t.tech_slug='kubernetes'`,
+			w.Args()...).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return float64(count) / float64(denom)
+	}
+	var sum float64
+	for _, bw := range baseline {
+		sum += share(bw)
+	}
+	want := share(week) - sum/float64(len(baseline))
+	got, found := 0.0, false
+	for _, s := range r.Ranked {
+		if s.Slug == "kubernetes" {
+			if s.Momentum.Suppressed {
+				t.Fatalf("kubernetes momentum suppressed (%+v); it clears both gates in this fixture", s.Momentum)
+			}
+			got, found = s.MomentumPP, true
+		}
+	}
+	if !found {
+		t.Fatal("kubernetes missing from the ranking")
+	}
+	if diff := got - want; diff > 1e-12 || diff < -1e-12 {
+		t.Errorf("momentum = %v, want share_W − mean(4 baselines) = %v", got, want)
+	}
+}
+
 func TestRisingAndFallingExcludeSuppressedRows(t *testing.T) {
 	db := seedFixture(t)
 	r, err := TechReportFor(context.Background(), db, fixtureNow, Lens{})
