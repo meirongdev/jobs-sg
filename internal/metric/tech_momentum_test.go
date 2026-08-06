@@ -162,3 +162,38 @@ func TestRisingAndFallingExcludeSuppressedRows(t *testing.T) {
 		}
 	}
 }
+
+func TestMomentumEligibleCountsGateClearers(t *testing.T) {
+	ctx := context.Background()
+	db := seedFixture(t)
+	all, err := TechReportFor(ctx, db, fixtureNow, Lens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.MomentumEligible == 0 {
+		t.Fatal("unlensed fixture has techs above the bar; eligible must be > 0")
+	}
+	if all.MomentumFloor != MinTechCountForMomentum {
+		t.Errorf("floor = %d, want %d", all.MomentumFloor, MinTechCountForMomentum)
+	}
+	// Backend postings exist every week (history complete) but no single tech
+	// clears 10 mentions within the lens — the exact state the gated-boards
+	// message exists for.
+	lens, err := ParseLens("", "Backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend, err := TechReportFor(ctx, db, fixtureNow, lens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backend.History.Suppressed {
+		t.Fatal("Backend lens has data in every window; history must be complete")
+	}
+	if backend.MomentumEligible != 0 {
+		t.Errorf("eligible = %d under the Backend lens, want 0 (max weekly count is below the bar)", backend.MomentumEligible)
+	}
+	if len(backend.Rising) != 0 || len(backend.Falling) != 0 {
+		t.Error("no eligible techs but a board is non-empty")
+	}
+}

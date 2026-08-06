@@ -29,16 +29,18 @@ type TechStat struct {
 
 // TechReport is the /tech page model.
 type TechReport struct {
-	Week        string     // reported ISO week, e.g. "2026-W32"
-	Denom       int        // enriched SWE postings in that week (the share denominator)
-	Ranked      []TechStat // by Count desc, capped at RankedTechLimit
-	Rising      []TechStat // by MomentumPP desc, unsuppressed only
-	Falling     []TechStat // by MomentumPP asc, unsuppressed only
-	MedianAll   float64    // rolling-90d median monthly salary, the premium baseline
-	SalaryN     int        // disclosed monthly salaries behind MedianAll
-	SalaryTotal int        // every SWE posting in the same window — the transparency denominator
-	History     Coverage   // how many of the 5 momentum windows had data
-	Lens        Lens
+	Week             string     // reported ISO week, e.g. "2026-W32"
+	Denom            int        // enriched SWE postings in that week (the share denominator)
+	Ranked           []TechStat // by Count desc, capped at RankedTechLimit
+	Rising           []TechStat // by MomentumPP desc, unsuppressed only
+	Falling          []TechStat // by MomentumPP asc, unsuppressed only
+	MomentumEligible int        // ranked techs clearing both momentum gates (counted before the display cap)
+	MomentumFloor    int        // MinTechCountForMomentum, surfaced so the page can state the bar it applies
+	MedianAll        float64    // rolling-90d median monthly salary, the premium baseline
+	SalaryN          int        // disclosed monthly salaries behind MedianAll
+	SalaryTotal      int        // every SWE posting in the same window — the transparency denominator
+	History          Coverage   // how many of the 5 momentum windows had data
+	Lens             Lens
 }
 
 // swePosted is the shared predicate: SWE postings whose posting_date falls in
@@ -117,6 +119,12 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 	// Boards draw from the FULL universe: eligibility is count and history,
 	// never demand rank. Built before the display cap on purpose.
 	r.Rising, r.Falling = momentumBoards(r.Ranked)
+	for _, s := range r.Ranked {
+		if !s.Momentum.Suppressed {
+			r.MomentumEligible++
+		}
+	}
+	r.MomentumFloor = MinTechCountForMomentum
 	if len(r.Ranked) > RankedTechLimit {
 		r.Ranked = r.Ranked[:RankedTechLimit]
 	}

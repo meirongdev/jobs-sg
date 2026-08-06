@@ -86,3 +86,34 @@ func TestChartScaleIgnoresBaselineOutlier(t *testing.T) {
 		t.Errorf("ordinary column collapsed to zero height:\n%s", svg)
 	}
 }
+
+func TestSignedPctIsARelativePercentNotPP(t *testing.T) {
+	if got := SignedPct(0.035); got != "+3.5%" {
+		t.Errorf("SignedPct(0.035) = %q, want +3.5%%", got)
+	}
+	if got := SignedPct(-0.043); got != "-4.3%" {
+		t.Errorf("SignedPct(-0.043) = %q, want -4.3%%", got)
+	}
+}
+
+func TestMomentumGatedMessageNamesTheBarNotAFlatMarket(t *testing.T) {
+	// History is complete but every tech is sample-suppressed: the page must
+	// name the gate, never claim the market was flat.
+	r := &metric.TechReport{
+		Week: "2026-W32", Denom: 40, MomentumFloor: 10,
+		Ranked: []metric.TechStat{{Slug: "go", Count: 9, Share: 0.2,
+			Momentum: metric.SampleCoverage(9, 10)}},
+	}
+	html, err := TechPage(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html, "Nothing rose this week") {
+		t.Error("gated boards must not claim the market was flat")
+	}
+	for _, want := range []string{"momentum bar", "10+ postings"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("gated message missing %q", want)
+		}
+	}
+}

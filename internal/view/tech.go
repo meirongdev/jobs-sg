@@ -13,6 +13,7 @@ var techPage = template.Must(template.New("tech").Funcs(template.FuncMap{
 	"bar":   Bar,
 	"pct":   Pct,
 	"pp":    PP,
+	"spct":  SignedPct,
 	"money": Money,
 	"sup":   Suppressed,
 	"lens":  lensNav,
@@ -88,11 +89,13 @@ const techTmpl = `<!DOCTYPE html>
 {{lens "/tech" .Lens}}
 
 <h2>1. Demand ranking</h2>
-<p class="note">{{.Denom}} enriched SWE postings in {{.Week}}. Share = postings mentioning the technology ÷ that number — postings still awaiting enrichment are excluded from the denominator, so a processing backlog cannot depress every share at once.</p>
+<p class="note">{{.Denom}} enriched SWE postings in {{.Week}}. Share = postings mentioning the technology ÷ that number — postings still awaiting enrichment are excluded from the denominator, so a processing backlog cannot depress every share at once. The chart shows the top 15; the table in section 3 lists the top 30.</p>
 {{if .Ranked}}{{bar (kvs .Ranked 15) 15}}{{else}}<p class="mut">No enriched postings in {{.Week}}.</p>{{end}}
 
 <h2>2. Momentum (vs the previous 4 weeks)</h2>
 {{if .History.Suppressed}}<p class="note">{{sup .History}} — momentum compares the reported week against the 4 completed weeks before it.</p>
+{{else if not .MomentumEligible}}
+<p class="note">No technology cleared the momentum bar this week ({{.MomentumFloor}}+ postings{{if .Lens.Label}} under this lens{{end}}): with counts that thin, a share delta would read noise as trend, so the boards stay empty rather than calling the market flat.</p>
 {{else}}
 <h3>Heating up</h3>
 {{if .Rising}}<table><tr><th>Technology</th><th>Share</th><th>Change</th><th>Postings</th></tr>
@@ -102,17 +105,17 @@ const techTmpl = `<!DOCTYPE html>
 {{if .Falling}}<table><tr><th>Technology</th><th>Share</th><th>Change</th><th>Postings</th></tr>
 {{range .Falling}}<tr><td>{{.Slug}}</td><td>{{pct .Share}}</td><td class="down">{{pp .MomentumPP}}</td><td>{{.Count}}</td></tr>{{end}}</table>
 {{else}}<p class="mut">Nothing fell this week.</p>{{end}}
+<p class="note">Change is in percentage points of share, not relative percent: a technology going from 1 to 3 postings would otherwise read as +200% and top the board. Boards consider every technology above the bar, not only the 30 the table below shows.</p>
 {{end}}
-<p class="note">Change is in percentage points of share, not relative percent: a technology going from 1 to 3 postings would otherwise read as +200% and top the board.</p>
 
 <h2>3. Salary premium and entry-friendliness</h2>
-<p class="note">Premium compares the median advertised monthly salary of postings mentioning a technology against the overall median, over the trailing 90 days. Baseline: <strong>{{money .MedianAll}}</strong> from {{.SalaryN}} of {{.SalaryTotal}} SWE postings — only {{pct .TransparencyPct}} disclose a monthly salary, and every figure here describes that disclosing subset. Entry-friendly is computed over the same 90-day window. Premium mixes seniority in (senior roles name more infrastructure); pick an experience band above to compare within one.</p>
+<p class="note">Premium compares the median advertised monthly salary of postings mentioning a technology against the overall median, over the trailing 90 days. Baseline: <strong>{{money .MedianAll}}</strong> from {{.SalaryN}} of {{.SalaryTotal}} SWE postings — only {{pct .TransparencyPct}} disclose a monthly salary, and every figure here describes that disclosing subset. Entry-friendly is computed over the same 90-day window. Premium mixes seniority in (senior roles name more infrastructure); pick an experience band above to compare within one. Entry-friendly = the share of postings mentioning the technology that ask for at most 2 years' experience, or are Intern/Junior roles with no stated requirement. The table lists the top 30 technologies by postings.</p>
 {{if .Ranked}}
 <table>
 <tr><th>Technology</th><th>Kind</th><th>Postings</th><th>Share</th><th>Salary premium</th><th>Entry-friendly</th></tr>
 {{range .Ranked}}<tr>
   <td>{{.Slug}}</td><td class="mut">{{.Kind}}</td><td>{{.Count}}</td><td>{{pct .Share}}</td>
-  <td>{{if .Premium.Suppressed}}{{sup .Premium}}{{else}}{{pp .PremiumPct}}{{end}}</td>
+  <td>{{if .Premium.Suppressed}}{{sup .Premium}}{{else}}{{spct .PremiumPct}}{{end}}</td>
   <td>{{pct .EntryFriendly}}</td>
 </tr>{{end}}
 </table>
