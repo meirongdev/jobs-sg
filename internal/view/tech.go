@@ -16,6 +16,7 @@ var techPage = template.Must(template.New("tech").Funcs(template.FuncMap{
 	"spct":  SignedPct,
 	"money": Money,
 	"sup":   Suppressed,
+	"nav":   Nav,
 	"lens":  lensNav,
 	"kvs":   techBars,
 }).Parse(techTmpl))
@@ -85,7 +86,7 @@ const techTmpl = `<!DOCTYPE html>
 <body><div class="wrap">
 <h1>Tech Demand</h1>
 <div class="sub">What is worth learning · reported week {{.Week}} (last completed ISO week, SGT){{if .Lens.Label}} · {{.Lens.Label}}{{end}}</div>
-<nav class="nav"><a href="/">Weekly report</a><a class="on" href="/tech">Tech</a></nav>
+{{nav "/tech"}}
 {{lens "/tech" .Lens}}
 
 <h2>1. Demand ranking</h2>

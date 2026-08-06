@@ -20,6 +20,7 @@ func RenderHTML(r *Report) (string, error) {
 		"topn":   topn,
 		"fmtKV":  fmtKV,
 		"mulPct": mulPct,
+		"nav":    view.Nav,
 	}).Parse(htmlTmpl))
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, r); err != nil {
@@ -83,7 +84,7 @@ const htmlTmpl = `<!DOCTYPE html>
 <body><div class="wrap">
 <h1>Singapore SWE Hiring Report</h1>
 <div class="sub">Week {{.WeekLabel}} (ISO week starting {{.WeekStart}}, SGT) · jobs.meirong.dev</div>
-<nav class="nav"><a class="on" href="/">Weekly report</a><a href="/tech">Tech</a></nav>
+{{nav "/"}}
 
 <h2>1. Executive Snapshot</h2>
 <div class="cards">
