@@ -82,3 +82,61 @@ func TestLensKeyIsStableAndDistinct(t *testing.T) {
 		t.Errorf("same lens gave different keys %q vs %q", a.Key(), c.Key())
 	}
 }
+
+func TestLabelPhrasesEveryBand(t *testing.T) {
+	for band, want := range map[string]string{
+		"0-2": "0-2 yrs", "3-5": "3-5 yrs", "6+": "6+ yrs",
+		"unstated": "experience unstated",
+	} {
+		l, err := ParseLens(band, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := l.Label(); got != want {
+			t.Errorf("Label(%s) = %q, want %q", band, got, want)
+		}
+	}
+	l, _ := ParseLens("unstated", "Backend")
+	if got := l.Label(); got != "experience unstated · Backend" {
+		t.Errorf("combined label = %q", got)
+	}
+	var zero Lens
+	if got := zero.Label(); got != "" {
+		t.Errorf("zero lens label = %q, want empty", got)
+	}
+}
+
+func TestParseLensRejectsMixedValidity(t *testing.T) {
+	if _, err := ParseLens("3-5", "backend"); err == nil {
+		t.Error("valid exp must not excuse an invalid role")
+	}
+	if _, err := ParseLens("0-3", "Backend"); err == nil {
+		t.Error("valid role must not excuse an invalid exp")
+	}
+}
+
+func TestAllowlistValuesAreSQLLiteralAndKeySafe(t *testing.T) {
+	// rolePredicates embeds these values in SQL at init and Key() joins them
+	// with '=' and ';' — a future constant containing a quote, backslash or
+	// delimiter would silently break injection-safety or cache-key uniqueness.
+	check := func(v string) {
+		if strings.ContainsAny(v, `'\;=`) {
+			t.Errorf("allowlisted value %q contains a reserved character", v)
+		}
+	}
+	for _, b := range ExpBands() {
+		check(b)
+	}
+	for _, f := range RoleFamilies() {
+		check(f)
+	}
+}
+
+func TestWhereIgnoresValuesThatBypassedParseLens(t *testing.T) {
+	// A Lens built without ParseLens must not reach the SQL text: unknown
+	// values contribute nothing, mirroring how expBands already behaves.
+	l := Lens{Exp: "27", Role: "Backend'; DROP TABLE job--"}
+	if got := l.Where(); got != "" {
+		t.Errorf("bypassed lens produced SQL %q, want empty", got)
+	}
+}

@@ -27,13 +27,27 @@ var expBands = map[string]string{
 	"unstated": "j.min_years_exp IS NULL",
 }
 
-var roleFamilies = map[string]bool{
-	classify.FamilyBackend: true, classify.FamilyFrontend: true,
-	classify.FamilyFullstack: true, classify.FamilyMobile: true,
-	classify.FamilyPlatform: true, classify.FamilySRE: true,
-	classify.FamilyData: true, classify.FamilyAIML: true,
-	classify.FamilySecurity: true, classify.FamilyOther: true,
+// roleFamilyList enumerates the allowlist once; predicates and pickers both
+// derive from it so a family added in classify shows up everywhere or nowhere.
+var roleFamilyList = []string{
+	classify.FamilyBackend, classify.FamilyFrontend, classify.FamilyFullstack,
+	classify.FamilyMobile, classify.FamilyPlatform, classify.FamilySRE,
+	classify.FamilyData, classify.FamilyAIML, classify.FamilySecurity,
+	classify.FamilyOther,
 }
+
+// rolePredicates maps an allowlisted family to its canned predicate. Like
+// expBands, only the map VALUE ever reaches the SQL text — built once at init
+// from compile-time constants, so even a Lens constructed without ParseLens
+// cannot inject through Where(). TestAllowlistValuesAreSQLLiteralAndKeySafe
+// guards the constants themselves.
+var rolePredicates = func() map[string]string {
+	m := make(map[string]string, len(roleFamilyList))
+	for _, f := range roleFamilyList {
+		m[f] = "j.role_family = '" + f + "'"
+	}
+	return m
+}()
 
 // ExpBands lists the allowlisted experience bands in display order, for
 // building the lens picker.
@@ -41,8 +55,8 @@ func ExpBands() []string { return []string{"0-2", "3-5", "6+", "unstated"} }
 
 // RoleFamilies lists the allowlisted role families in display order.
 func RoleFamilies() []string {
-	out := make([]string, 0, len(roleFamilies))
-	for f := range roleFamilies {
+	out := make([]string, 0, len(rolePredicates))
+	for f := range rolePredicates {
 		out = append(out, f)
 	}
 	sort.Strings(out)
@@ -59,8 +73,10 @@ func ParseLens(exp, role string) (Lens, error) {
 			return Lens{}, fmt.Errorf("unknown exp band %q", exp)
 		}
 	}
-	if role != "" && !roleFamilies[role] {
-		return Lens{}, fmt.Errorf("unknown role family %q", role)
+	if role != "" {
+		if _, ok := rolePredicates[role]; !ok {
+			return Lens{}, fmt.Errorf("unknown role family %q", role)
+		}
 	}
 	return Lens{Exp: exp, Role: role}, nil
 }
@@ -68,16 +84,17 @@ func ParseLens(exp, role string) (Lens, error) {
 // Where returns a fragment appendable to a WHERE clause, or "" for the empty
 // lens. Every query using it MUST alias the job table as `j`.
 //
-// The role value is interpolated rather than bound because these fragments are
-// concatenated into queries whose bind arguments are positional; interpolation
-// is safe only because the value came through the allowlist above.
+// These fragments are concatenated into queries whose bind arguments are
+// positional, so neither field can be bound; both resolve through allowlist
+// maps whose VALUES are the only text that ever reaches the SQL — an
+// unvalidated Lens contributes nothing rather than injecting.
 func (l Lens) Where() string {
 	var b strings.Builder
 	if p, ok := expBands[l.Exp]; ok {
 		b.WriteString(" AND " + p)
 	}
-	if l.Role != "" {
-		b.WriteString(" AND j.role_family = '" + l.Role + "'")
+	if p, ok := rolePredicates[l.Role]; ok {
+		b.WriteString(" AND " + p)
 	}
 	return b.String()
 }
@@ -85,11 +102,18 @@ func (l Lens) Where() string {
 // Key is the canonical cache-key fragment for this lens.
 func (l Lens) Key() string { return "exp=" + l.Exp + ";role=" + l.Role }
 
+// expLabels phrases each band for page headers. "unstated" is not a duration,
+// so it must not take the "N yrs" suffix.
+var expLabels = map[string]string{
+	"0-2": "0-2 yrs", "3-5": "3-5 yrs", "6+": "6+ yrs",
+	"unstated": "experience unstated",
+}
+
 // Label describes the active lens for page headers, or "" when unfiltered.
 func (l Lens) Label() string {
 	var parts []string
-	if l.Exp != "" {
-		parts = append(parts, l.Exp+" yrs")
+	if lbl, ok := expLabels[l.Exp]; ok {
+		parts = append(parts, lbl)
 	}
 	if l.Role != "" {
 		parts = append(parts, l.Role)
