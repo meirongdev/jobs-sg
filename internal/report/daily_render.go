@@ -31,14 +31,14 @@ func newDailyTemplate(name string) *template.Template {
 	})
 }
 
-// RenderDailyOverviewHTML renders the /daily index: one row per SGT day of
+// RenderDailyOverviewHTML renders the /ops index: one row per SGT day of
 // crawl activity. Self-contained (inline CSS + SVG, no external resources —
 // docs/02 §4.3), same constraint as the weekly report.
 func RenderDailyOverviewHTML(o *DailyOverview) (string, error) {
 	return execDaily(dailyPage, o)
 }
 
-// RenderDayDetailHTML renders the /daily/{YYYY-MM-DD} drill-down.
+// RenderDayDetailHTML renders the /ops/{YYYY-MM-DD} drill-down.
 func RenderDayDetailHTML(d *DayDetail) (string, error) {
 	return execDaily(dayPage, d)
 }
@@ -147,7 +147,7 @@ const dailyTmpl = `<!DOCTYPE html>
 <body><div class="wrap wide">
 <h1>Daily Crawl Statistics</h1>
 <div class="sub">{{.DaysLabel}} · {{.From}} → {{.To}} (SGT) · rendered {{.Generated}}</div>
-<nav class="nav"><a href="/">Weekly report</a><a class="on" href="/daily">Daily crawl stats</a></nav>
+<nav class="nav"><a href="/">Weekly report</a><a href="/tech">Tech</a></nav>
 
 <div class="cards">
   <div class="card"><div class="n">{{.NewSWE7d}}</div><div class="k">New SWE postings (7d)</div></div>
@@ -169,7 +169,7 @@ const dailyTmpl = `<!DOCTYPE html>
   <th class="n">Closed</th><th class="n">Errors</th><th class="n">LLM calls/hits</th>
 </tr>
 {{range .Days}}<tr{{if .Idle}} class="idle"{{end}}>
-  <td><a href="/daily/{{.Date}}">{{.Date}}</a></td>
+  <td><a href="/ops/{{.Date}}">{{.Date}}</a></td>
   <td>{{kinds .Kinds}}</td>
   <td>{{pill .Status}}</td>
   <td class="n">{{dur .Duration}}</td>
@@ -201,7 +201,7 @@ const dayTmpl = `<!DOCTYPE html>
 <body><div class="wrap wide">
 <h1>Crawl Detail — {{.Date}}</h1>
 <div class="sub">One SGT calendar day (02:15 SGT ingest, 03:10 SGT enrich)</div>
-<nav class="nav"><a href="/">Weekly report</a><a href="/daily">Daily crawl stats</a></nav>
+<nav class="nav"><a href="/">Weekly report</a><a href="/tech">Tech</a></nav>
 
 <div class="cards">
   <div class="card"><div class="n">{{.Summary.Archived}}</div><div class="k">Postings archived</div></div>
@@ -266,8 +266,8 @@ const dayTmpl = `<!DOCTYPE html>
 {{else}}<p class="mut">No candidate postings were stored on this day.</p>{{end}}
 
 <div class="pager">
-  <a href="/daily/{{.Prev}}">← {{.Prev}}</a>
-  {{if .Next}}<a href="/daily/{{.Next}}">{{.Next}} →</a>{{end}}
-  <a href="/daily">All days</a>
+  <a href="/ops/{{.Prev}}">← {{.Prev}}</a>
+  {{if .Next}}<a href="/ops/{{.Next}}">{{.Next}} →</a>{{end}}
+  <a href="/ops">All days</a>
 </div>
 ` + dailyFoot

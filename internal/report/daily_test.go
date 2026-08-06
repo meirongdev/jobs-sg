@@ -397,8 +397,8 @@ func TestRenderDailyPagesAreSelfContained(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Daily Crawl Statistics",
-		`href="/daily/2026-08-04"`, // day rows drill down
-		`href="/"`,                 // nav back to the weekly report
+		`href="/ops/2026-08-04"`, // day rows drill down
+		`href="/"`,               // nav back to the weekly report
 		"Daily crawl detail",
 		"New SWE postings per day",
 		`class="pill s-partial"`, // degraded enrich surfaces on the day row
@@ -421,7 +421,7 @@ func TestRenderDailyPagesAreSelfContained(t *testing.T) {
 		"Crawl Detail — 2026-08-04",
 		"Backend Engineer",
 		"Postings first seen this day",
-		`href="/daily/2026-08-03"`,
+		`href="/ops/2026-08-03"`,
 	} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail HTML missing %q", want)

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/meirongdev/jobs-sg/internal/report"
 	"github.com/meirongdev/jobs-sg/internal/store"
 )
 
@@ -49,8 +50,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /", s.handleRoot)
 	mux.HandleFunc("GET /tech", s.handleTech)
 	mux.HandleFunc("GET /w/{week}", s.handleWeek)
-	mux.HandleFunc("GET /daily", s.handleDaily)
-	mux.HandleFunc("GET /daily/{date}", s.handleDailyDate)
+	// Operational pages: kept as troubleshooting and data-freshness evidence,
+	// but out of the job-seeker nav. The old /daily paths stay as permanent
+	// redirects so existing links and bookmarks survive.
+	mux.HandleFunc("GET /ops", s.handleDaily)
+	mux.HandleFunc("GET /ops/{date}", s.handleDailyDate)
+	mux.HandleFunc("GET /daily", redirectTo("/ops"))
+	mux.HandleFunc("GET /daily/{date}", s.redirectDailyDate)
 	mux.HandleFunc("GET /robots.txt", s.handleRobots)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
@@ -93,4 +99,31 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("ok"))
+}
+
+// redirectTo permanently redirects a retired path, preserving the query string.
+//
+// `to` is a per-request copy on purpose: appending to the captured `target`
+// would accumulate query strings across requests, so the second visitor to
+// /daily?days=7 would be sent to /ops?days=7?days=7.
+func redirectTo(target string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		to := target
+		if q := r.URL.RawQuery; q != "" {
+			to += "?" + q
+		}
+		http.Redirect(w, r, to, http.StatusMovedPermanently)
+	}
+}
+
+// redirectDailyDate maps /daily/{date} onto /ops/{date}. The date is validated
+// before it lands in a Location header so the redirect cannot echo arbitrary
+// path input back to the client.
+func (s *Server) redirectDailyDate(w http.ResponseWriter, r *http.Request) {
+	date := r.PathValue("date")
+	if _, err := report.ParseDay(date); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/ops/"+date, http.StatusMovedPermanently)
 }

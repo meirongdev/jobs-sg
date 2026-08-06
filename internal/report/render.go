@@ -83,7 +83,7 @@ const htmlTmpl = `<!DOCTYPE html>
 <body><div class="wrap">
 <h1>Singapore SWE Hiring Report</h1>
 <div class="sub">Week {{.WeekLabel}} (ISO week starting {{.WeekStart}}, SGT) · jobs.meirong.dev</div>
-<nav class="nav"><a class="on" href="/">Weekly report</a><a href="/daily">Daily crawl stats</a></nav>
+<nav class="nav"><a class="on" href="/">Weekly report</a><a href="/tech">Tech</a></nav>
 
 <h2>1. Executive Snapshot</h2>
 <div class="cards">
@@ -139,7 +139,7 @@ const htmlTmpl = `<!DOCTYPE html>
 <tr><td>Unmapped tech terms</td><td>{{.DataQuality.UnmappedTech}}</td></tr>
 </table>
 
-<div class="foot">Numbers computed by SQL from public MyCareersFuture data. Methodology: docs/03-data-model.md · Compliance: aggregate stats only, no personal data.</div>
+<div class="foot">Numbers computed by SQL from public MyCareersFuture data. Methodology: docs/03-data-model.md · <a href="/ops">data freshness</a> · Compliance: aggregate stats only, no personal data.</div>
 </div></body></html>`
 
 const mdTmpl = `# Singapore SWE Hiring Report — Week {{.WeekLabel}}
