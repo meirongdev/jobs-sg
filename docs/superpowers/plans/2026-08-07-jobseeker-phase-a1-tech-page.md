@@ -1463,9 +1463,16 @@ func TestEnrichedDenominatorExcludesBacklog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The probe must come from the REPORTED week: the fixture is written in
+	// chronological order, so an unconstrained LIMIT 1 lands in 2026-W27 —
+	// five weeks before the reported window — and deleting its enrichment
+	// could never move the W32 denominator.
+	week := LastCompletedWeek(fixtureNow)
 	var uuid string
 	if err := db.QueryRowContext(ctx, `
-		SELECT uuid FROM job WHERE is_swe=1 LIMIT 1`).Scan(&uuid); err != nil {
+		SELECT j.uuid FROM job j
+		WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ? LIMIT 1`,
+		week.Args()...).Scan(&uuid); err != nil {
 		t.Fatal(err)
 	}
 	// Un-enriching means removing BOTH traces: writeTech marks enrich_done even
@@ -1665,6 +1672,8 @@ Expected: PASS（4 个 Tech 测试 + 前面的）
 git add internal/metric/tech.go internal/metric/tech_test.go internal/metric/fixture_test.go
 git commit -m "feat(metric): rank weekly tech demand against an enriched denominator"
 ```
+
+> 执行记录 2026-08-07：首次执行 BLOCKED——`TestEnrichedDenominatorExcludesBacklog` 的探针 `SELECT uuid FROM job WHERE is_swe=1 LIMIT 1` 无周约束，fixture 按时间序写入使其结构性选中 2026-W27 的岗位（EQP 显示走 `idx_job_exp`，与 rowid 序皆落在最早周），删其富化记录不可能影响 W32 分母；`tech.go` 输出 51 与 fixture 逐日 SWE 计数（8+8+7+7+7+7+7）吻合，实现无误。已按上文把探针绑定到 `LastCompletedWeek(fixtureNow)` 窗口。教训同 Task 6：plan 里"随手取一行"的测试代码必须显式声明取样约束。
 
 ---
 
@@ -2671,3 +2680,4 @@ Expected: 改动只落在本计划「文件结构」表列出的文件上；`doc
 5. `docs/01-requirements.md` §1/§2/§5 按 spec §1.1 更新。
 6. 物化 `tech_share` 与 `swe_enriched` 到 `weekly_metric` —— spec §3.1 的审计载体（口径变更全量重算的依据），随第 4 项一起落在 cmd/report；展示路径不变，仍走现算。
 7. `internal/report` 的窗口助手（`sgt`/`WeekBounds`/`DayBounds`/`ISOWeekLabel`）收敛到 `metric.Window` —— 两份实现已有行为差异（report 版信任调用者预本地化，metric 版自己 `.In(SGT)`），不收敛迟早有人只修一份的边界 bug。随第 4 项周报重排一起做。
+8. `internal/report` 的取值格式化助手（`pct`/`money`/`topn`）换成 `view.Pct`/`view.Money`/`view.TopN` 并删本地拷贝 —— Task 6 收敛了图表半边但留下了这半边（两份逐字节相同；KV 别名已使其可直接替换，report 无测试直接调用它们）。同一失败模式："只修一份"。顺带：`SuppressedCSS` 命名偏窄（还装着 `.up/.down/.lens`），届时可一并改名；view_test 里两个 outlier 测试的重叠可折叠。
