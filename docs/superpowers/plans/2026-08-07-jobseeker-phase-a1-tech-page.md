@@ -148,6 +148,8 @@ git add scripts/genfixture/main.go testdata/fixture/jobs.jsonl internal/classify
 git commit -m "test(fixture): spread postings over 6 ISO weeks, add null-experience rows"
 ```
 
+> 执行记录 2026-08-07：已执行（`46963d4`）。质量 review 两条 Important 以补充提交跟进：①`count != 360` 是弱断言——4 周 × 90 或平移过的 Monday 也能凑出 360——回放测试补 ISO 周形状断言（恰为 2026-W27…W32 各 60 行）；②60 % 24 ≠ 0，每个模板每周出现 2 或 3 次、逐周交替，仅在 6 周全窗平衡到每模板 15 次——生成器循环旁注明，动量类测试不得把该机械振荡读成趋势。同批修掉两处过期行数注释（main.go 头部 "~100"、fixture_test "100-row mix"）。
+
 ---
 
 ## Task 2: 新增四个索引
@@ -198,12 +200,11 @@ Expected: FAIL，四个索引都报 missing
 
 - [ ] **Step 3: 加索引**
 
-`internal/store/schema.go` 中，在 `CREATE INDEX IF NOT EXISTS idx_job_closed ...` 之后插入：
+`internal/store/schema.go` 的 schema 是**单次多语句 Exec**，按文件顺序执行——索引不能前向引用还没 CREATE 的表。四条分两处放。
+
+在 `CREATE INDEX IF NOT EXISTS idx_job_closed ...` 之后插入三条只引用 `job` 的：
 
 ```sql
--- Per-technology queries (/tech) filter by tech_slug, but the table's primary
--- key is (job_uuid, tech_slug, source) — a slug lookup scans without this.
-CREATE INDEX IF NOT EXISTS idx_job_tech_slug   ON job_tech(tech_slug, job_uuid);
 -- Job-seeker pages filter active SWE postings by posting window.
 CREATE INDEX IF NOT EXISTS idx_job_active_list ON job(is_swe, closed_at, posting_date);
 -- Salary percentiles / premium scan only disclosed monthly salaries.
@@ -211,6 +212,16 @@ CREATE INDEX IF NOT EXISTS idx_job_salary      ON job(is_swe, salary_type, salar
 -- Experience-band lens and the entry-level dashboard.
 CREATE INDEX IF NOT EXISTS idx_job_exp         ON job(is_swe, min_years_exp);
 ```
+
+在 `job_tech` 表定义的 `);` 之后插入（与本文件"表的索引紧跟表"的既有惯例一致）：
+
+```sql
+-- Per-technology queries (/tech) filter by tech_slug, but the table's primary
+-- key is (job_uuid, tech_slug, source) — a slug lookup scans without this.
+CREATE INDEX IF NOT EXISTS idx_job_tech_slug   ON job_tech(tech_slug, job_uuid);
+```
+
+> 执行记录 2026-08-07：初版计划让四条全放 `idx_job_closed` 之后，`idx_job_tech_slug` 前向引用 `job_tech`，`Migrate` 报 "no such table: main.job_tech"，包内全部测试红。实现按上文修正（仅挪动位置，索引名/列序/注释未动），本节已回写为正确指令。
 
 - [ ] **Step 4: 确认通过**
 
@@ -1399,7 +1410,13 @@ func TestEnrichedDenominatorExcludesBacklog(t *testing.T) {
 		SELECT uuid FROM job WHERE is_swe=1 LIMIT 1`).Scan(&uuid); err != nil {
 		t.Fatal(err)
 	}
+	// Un-enriching means removing BOTH traces: writeTech marks enrich_done even
+	// for zero-match jobs (internal/store/enrich.go), so deleting job_tech
+	// alone leaves the posting "processed" and the denominator unchanged.
 	if _, err := db.ExecContext(ctx, `DELETE FROM job_tech WHERE job_uuid=?`, uuid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM enrich_done WHERE job_uuid=?`, uuid); err != nil {
 		t.Fatal(err)
 	}
 	after, err := TechReportFor(ctx, db, fixtureNow, Lens{})
@@ -1486,15 +1503,16 @@ type TechStat struct {
 
 // TechReport is the /tech page model.
 type TechReport struct {
-	Week      string     // reported ISO week, e.g. "2026-W32"
-	Denom     int        // enriched SWE postings in that week (the share denominator)
-	Ranked    []TechStat // by Count desc, capped at RankedTechLimit
-	Rising    []TechStat // by MomentumPP desc, unsuppressed only
-	Falling   []TechStat // by MomentumPP asc, unsuppressed only
-	MedianAll float64    // rolling-90d median monthly salary, the premium baseline
-	SalaryN   int        // disclosed monthly salaries behind MedianAll
-	History   Coverage   // how many of the 5 momentum windows had data
-	Lens      Lens
+	Week        string     // reported ISO week, e.g. "2026-W32"
+	Denom       int        // enriched SWE postings in that week (the share denominator)
+	Ranked      []TechStat // by Count desc, capped at RankedTechLimit
+	Rising      []TechStat // by MomentumPP desc, unsuppressed only
+	Falling     []TechStat // by MomentumPP asc, unsuppressed only
+	MedianAll   float64    // rolling-90d median monthly salary, the premium baseline
+	SalaryN     int        // disclosed monthly salaries behind MedianAll
+	SalaryTotal int        // every SWE posting in the same window — the transparency denominator
+	History     Coverage   // how many of the 5 momentum windows had data
+	Lens        Lens
 }
 
 // swePosted is the shared predicate: SWE postings whose posting_date falls in
@@ -1831,7 +1849,7 @@ git commit -m "feat(metric): add four-week tech momentum in percentage points"
 
 ## Task 9: `/tech` 聚合之三——薪资溢价与入门友好度
 
-溢价基线是滚动 90 天的全体中位数；样本不足 20 条就抑制。溢价**跟随镜头重算**——`?exp=3-5` 下看到的是同经验档内的溢价，这才可行动（spec §3.2 的资历混杂）。
+溢价基线是滚动 90 天的全体中位数；样本不足 20 条就抑制。溢价**跟随镜头重算**——`?exp=3-5` 下看到的是同经验档内的溢价，这才可行动（spec §3.2 的资历混杂）。入门友好度与薪资透明率共用同一个滚动窗：同一张表里两列各用一套窗口会让数字悄悄失去可比性，且 spec 验收标准 4 要求每处薪资数字旁都有样本量与透明率。
 
 **Files:**
 - Modify: `internal/metric/tech.go`
@@ -1858,6 +1876,12 @@ func TestPremiumBaselineIsARealAdvertisedSalary(t *testing.T) {
 	}
 	if r.SalaryN == 0 || r.MedianAll == 0 {
 		t.Fatalf("no disclosed salaries behind the baseline: n=%d median=%v", r.SalaryN, r.MedianAll)
+	}
+	if r.SalaryTotal < r.SalaryN || r.SalaryTotal == 0 {
+		t.Errorf("transparency denominator %d must cover the disclosed sample %d", r.SalaryTotal, r.SalaryN)
+	}
+	if p := r.TransparencyPct(); p <= 0 || p > 1 {
+		t.Errorf("transparency rate = %v, want (0,1]", p)
 	}
 	var n int
 	if err := db.QueryRowContext(ctx, `
@@ -1972,8 +1996,13 @@ Expected: FAIL — `r.SalaryN` 为 0
 	}
 	r.SalaryN = len(allSalaries)
 	r.MedianAll = Percentile(allSalaries, 0.5)
+	if r.SalaryTotal, err = sweCount(ctx, db, roll, lens); err != nil {
+		return nil, err
+	}
 
-	entry, err := entryShare(ctx, db, week, lens)
+	// Entry-friendliness shares the premium's rolling window: two columns of
+	// one table computed over different periods would be silently incomparable.
+	entry, err := entryShare(ctx, db, roll, lens)
 	if err != nil {
 		return nil, err
 	}
@@ -2034,9 +2063,28 @@ func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug s
 	return out, rows.Err()
 }
 
+// sweCount counts every SWE posting in the window under the lens, disclosed
+// salary or not — the denominator of the salary transparency rate.
+func sweCount(ctx context.Context, db *store.DB, w Window, lens Lens) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT count(*) `+swePosted+lens.Where(), w.Args()...).Scan(&n)
+	return n, err
+}
+
+// TransparencyPct is the share of SWE postings in the rolling window that
+// disclose a monthly salary. It is printed beside every salary figure so a
+// median over the disclosing subset cannot read as a market-wide number.
+func (r *TechReport) TransparencyPct() float64 {
+	if r.SalaryTotal == 0 {
+		return 0
+	}
+	return float64(r.SalaryN) / float64(r.SalaryTotal)
+}
+
 // entryShare returns slug -> share of postings mentioning it that are
 // entry-level. It answers "what do they actually ask a junior for", which the
-// overall ranking cannot.
+// overall ranking cannot. The window is the caller's choice; /tech passes the
+// premium's rolling window so the two table columns stay comparable.
 func entryShare(ctx context.Context, db *store.DB, w Window, lens Lens) (map[string]float64, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT t.tech_slug, count(DISTINCT j.uuid),
@@ -2283,7 +2331,7 @@ const techTmpl = `<!DOCTYPE html>
 <p class="note">Change is in percentage points of share, not relative percent: a technology going from 1 to 3 postings would otherwise read as +200% and top the board.</p>
 
 <h2>3. Salary premium and entry-friendliness</h2>
-<p class="note">Premium compares the median advertised monthly salary of postings mentioning a technology against the overall median, over the trailing 90 days. Baseline: <strong>{{money .MedianAll}}</strong> from {{.SalaryN}} postings that disclose a monthly salary — every figure here describes only that disclosing subset. Premium mixes seniority in (senior roles name more infrastructure); pick an experience band above to compare within one.</p>
+<p class="note">Premium compares the median advertised monthly salary of postings mentioning a technology against the overall median, over the trailing 90 days. Baseline: <strong>{{money .MedianAll}}</strong> from {{.SalaryN}} of {{.SalaryTotal}} SWE postings — only {{pct .TransparencyPct}} disclose a monthly salary, and every figure here describes that disclosing subset. Entry-friendly is computed over the same 90-day window. Premium mixes seniority in (senior roles name more infrastructure); pick an experience band above to compare within one.</p>
 <table>
 <tr><th>Technology</th><th>Kind</th><th>Postings</th><th>Share</th><th>Salary premium</th><th>Entry-friendly</th></tr>
 {{range .Ranked}}<tr>
@@ -2563,3 +2611,4 @@ Expected: 改动只落在本计划「文件结构」表列出的文件上；`doc
 3. `/companies`：持续招聘者、岗位寿命（需先给 fixture 灌 `closed_at`——它不是 MCF JSON 字段，只能在测试里写库）、竞争度分层（日均投递归一化）—— spec §3.5、§3.6。
 4. 周报按新顺序重排 + Data Quality 收为页脚一行 + Telegram 改求职者口播 —— spec §4.5。
 5. `docs/01-requirements.md` §1/§2/§5 按 spec §1.1 更新。
+6. 物化 `tech_share` 与 `swe_enriched` 到 `weekly_metric` —— spec §3.1 的审计载体（口径变更全量重算的依据），随第 4 项一起落在 cmd/report；展示路径不变，仍走现算。
