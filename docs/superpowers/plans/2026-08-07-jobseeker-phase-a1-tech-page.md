@@ -222,6 +222,10 @@ CREATE INDEX IF NOT EXISTS idx_job_tech_slug   ON job_tech(tech_slug, job_uuid);
 ```
 
 > 执行记录 2026-08-07：初版计划让四条全放 `idx_job_closed` 之后，`idx_job_tech_slug` 前向引用 `job_tech`，`Migrate` 报 "no such table: main.job_tech"，包内全部测试红。实现按上文修正（仅挪动位置，索引名/列序/注释未动），本节已回写为正确指令。
+>
+> 执行记录（补）：质量 review 指出本节 Step 1 的名字存在性测试弱于本文件既有惯例（`queryPlan` + EXPLAIN QUERY PLAN 断言，见 `TestCrawlTimeQueriesUseIndexes`）——同名换列照样通过。已以 `TestJobSeekerQueriesUseIndexes` 补齐（`c7d2d9e`）：每个索引一条代表查询，断言用到该索引且无 `SCAN job`/`SCAN job_tech` 兜底；`idx_job_tech_slug` 的代表查询必须是 per-slug 等值形状（group-by-all-slugs 的 join 会从 `job` 侧驱动、走 PK，不碰该索引）。两条 Minor 记录在案不处理：部分索引（`WHERE is_swe=1`）收益无法静态量化，留待有真实数据后重访；schema 注释的现在时态与 spec §4.3 一致，不改。
+>
+> 复核通过（实证：内存库中逐个改坏索引再跑 EQP）。**已知残留，接受不修**：`idx_job_exp` 缩列成 `(is_swe)` 时测试仍绿——没有竞争索引抢走规划器，SQLite 顶着原名继续用残废索引；失败模式是变宽扫描而非全表扫，性能问题会先从 /metrics 暴露。若日后要闭合：对四个索引加 `PRAGMA index_info` 列数断言（比 EQP 更直接且零规划器依赖）。
 
 - [ ] **Step 4: 确认通过**
 
@@ -443,6 +447,8 @@ Expected: PASS（5 个测试）
 git add internal/metric/kv.go internal/metric/window.go internal/metric/window_test.go
 git commit -m "feat(metric): add SGT window helpers for day, ISO week and rolling ranges"
 ```
+
+> 执行记录 2026-08-07：已执行（`d18ea7c`，与本节代码逐字节一致）。质量 review 两条 Important 以 `22866bf` 跟进：①`Window` 注释宣称的 date-only 安全性引用的是 `report.TestWeekWindowDateOnlyBoundaries`——那钉的是平行的 `report.WeekBounds`，`Args()` 本身零覆盖——已补 `TestArgsRenderDateOnlySafeBounds` 并改注释双引用；②report/metric 两份窗口实现已有行为差异且无收敛记录——已记入 Phase A-2 待办第 7 项。Minor 记录在案不处理：`Rolling(now, days)` 不锁死 `RollingDays`（常量注释就在旁边，改签名会波及 Task 9 已写好的调用）；`WeekLabel()` 对滚动窗可调但无意义（单一 `Window` 结构服务多种区间形状的已知取舍）。
 
 ---
 
@@ -667,6 +673,8 @@ git add internal/metric/lens.go internal/metric/lens_test.go
 git commit -m "feat(metric): add allowlisted exp/role lens with SQL predicates"
 ```
 
+> 执行记录 2026-08-07：已执行（`71f99f8`，逐字节一致）。质量 review 两条 Important 以 `62b8366` 跟进：①`Where()` 对 Role 的插值只靠"必须经 ParseLens"的注释约定——直接构造 `Lens{}` 可绕过白名单注入。改为 `rolePredicates`（包初始化时从 classify 常量生成谓词，请求期只做 map 查找，未验证值贡献空串），与 `expBands` 同构；②`Label()` 对 unstated 档渲染 "unstated yrs" 且零测试——改 `expLabels` 映射（"experience unstated"）+ 四个新测试（含白名单值 SQL 字面量/Key 分隔符安全守卫、混合合法性拒绝、绕过构造零贡献）。Minor 记录在案：`Label()` 留在 metric 不迁 view（/tech 模板以 `.Lens.Label` 方法调用，迁移需 FuncMap 迂回，不值）。
+
 ---
 
 ## Task 5: `Coverage` 与最近秩分位数
@@ -860,6 +868,8 @@ git add internal/metric/coverage.go internal/metric/percentile.go internal/metri
 git commit -m "feat(metric): add suppression coverage and nearest-rank percentile"
 ```
 
+> 执行记录 2026-08-07：已执行（`9390a1f`，逐字节一致）。质量 review 两条 Important 以 `6cea52e` 跟进：①`Percentile` 的"已排序"前置条件零防御——违反不崩溃而是给出貌似合理的错数，正是本包要杜绝的失败模式。加 `sort.Float64sAreSorted` 守卫 + panic（调用者 bug 应响亮死在测试期）+ 乱序 panic 测试；②既有测试只验 `Suppressed`/`Reason` 决策、不验渲染载荷（`Samples`/`WeeksAvailable`/`WeeksRequired`）——把 `Samples` 存成阈值全套照绿但页面渲染 `—(n=5)` 而非 `—(n=4)`。补字段断言。同批四条 Minor：负 q 钳位测试、`min` 参数改名 `threshold`（遮蔽内建）、`j.` 别名约定收进包文档、`Coverage` 注明只经构造函数创建。
+
 ---
 
 ## Task 6: 抽出 `internal/view` 共享视觉层
@@ -873,6 +883,8 @@ git commit -m "feat(metric): add suppression coverage and nearest-rank percentil
 - Test: `internal/view/view_test.go`
 - Modify: `internal/report/render.go`
 - Modify: `internal/report/daily_render.go`
+- Modify: `internal/report/metrics.go`（KV 别名）
+- Modify: `internal/report/daily_test.go`（**仅**删除 `TestChartScaleIgnoresBaselineOutlier`——它直接调用被迁走的未导出符号，其覆盖以 Step 4 第 8 点迁入 view）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1212,17 +1224,63 @@ type KV = metric.KV
 
 7. import 调整：`render.go`、`daily_render.go`、`metrics.go` 三个文件顶部加 `"github.com/meirongdev/jobs-sg/internal/view"`（`metrics.go` 加的是 `internal/metric`，供 `KV` 别名使用）。**不需要删任何 import**：`render.go` 移除 `barSVG` 后 `fmt`/`strings`/`math`/`html/template` 仍被 `pct`/`money`/`fmtKV`/`mulPct`/`RenderHTML` 用到；`daily_render.go` 移除 `columnSVG`/`chartScale` 后 `fmt`/`strings`/`slices`/`time`/`html/template` 仍被 `statusPill`/`kindBadges`/`humanDuration`/`runAgo` 用到。
 
+8. **测试随代码迁移**：`internal/report/daily_test.go` 的 `TestChartScaleIgnoresBaselineOutlier`（含其上方两行注释）直接调用 `chartScale`/`columnSVG`，删除符号后它必然编译失败——把该函数整体删除，并将其覆盖（5 例 chartScale 表、`#7c3aed` 削顶填充、`height="0"` 塌陷守护）以下述形式追加到 `internal/view/view_test.go`（包名/类型/函数名按 view 适配，断言逐条保留）：
+
+```go
+// Migrated from internal/report/daily_test.go when chartScale moved here: the
+// first-run baseline stores the whole live market in one day; without outlier
+// handling every later day renders as a 1px stub.
+func TestChartScaleIgnoresBaselineOutlier(t *testing.T) {
+	cases := []struct {
+		name string
+		vals []float64
+		want float64
+	}{
+		{"baseline day dwarfs the rest", []float64{6666, 40, 38, 45, 41}, 45},
+		{"ordinary spread keeps true max", []float64{40, 38, 45, 41}, 45},
+		{"2x is not an outlier", []float64{80, 40, 38}, 80},
+		{"all zero", []float64{0, 0}, 1},
+		{"single point", []float64{12}, 12},
+	}
+	for _, c := range cases {
+		kvs := make([]metric.KV, len(c.vals))
+		for i, v := range c.vals {
+			kvs[i] = metric.KV{Key: "d", Value: v}
+		}
+		if got := chartScale(kvs); got != c.want {
+			t.Errorf("%s: chartScale = %v, want %v", c.name, got, c.want)
+		}
+	}
+
+	// the clipped column still reports its real value on the page
+	svg := string(Column([]metric.KV{{Key: "08-01", Value: 6666}, {Key: "08-02", Value: 40}}, "new SWE"))
+	if !strings.Contains(svg, ">6666<") {
+		t.Errorf("clipped column must print its value:\n%s", svg)
+	}
+	if !strings.Contains(svg, `fill="#7c3aed"`) {
+		t.Errorf("clipped column must be visually distinct:\n%s", svg)
+	}
+	if strings.Contains(svg, `height="0"`) {
+		t.Errorf("ordinary column collapsed to zero height:\n%s", svg)
+	}
+}
+```
+
+除这一处删除外，`internal/report` 的任何测试文件不得再动——其余既有测试原样通过仍是无回归的证据。
+
 - [ ] **Step 5: 确认全绿**
 
-Run: `go test ./... && go vet ./...`
-Expected: PASS。`internal/report` 的既有测试（`TestComputeMetricsAndRender` 等）必须仍然通过——这是抽取无回归的证据。
+Run: `go test ./... -count=1 && go vet ./...`
+Expected: PASS。`internal/report` 的既有测试（`TestComputeMetricsAndRender` 等，除按 Step 4 第 8 点迁移的那一个）必须原样通过——这是抽取无回归的证据。另跑 `grep -rn "baseCSS\|barSVG\|columnSVG\|chartScale" internal/report/`，必须零命中。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add internal/view internal/report/render.go internal/report/daily_render.go internal/report/metrics.go
-git commit -m "refactor(view): extract shared CSS and SVG charts out of report"
+git add internal/view internal/report/render.go internal/report/daily_render.go internal/report/metrics.go internal/report/daily_test.go
+git commit -m "refactor(view): extract shared CSS and SVG charts out of report" -- internal/view internal/report/render.go internal/report/daily_render.go internal/report/metrics.go internal/report/daily_test.go
 ```
+
+> 执行记录 2026-08-07：首次执行按初版指令（"零测试文件改动"）走到 Step 5 卡死：`daily_test.go` 的 `TestChartScaleIgnoresBaselineOutlier` 直接调用包内未导出的 `chartScale`/`columnSVG`，与"删除符号 + 全绿 + 不动测试"三条互斥——plan 作者写 Step 4 时只查了模板调用点，漏了包内测试对未导出符号的直接引用。实现者实证确认后回滚手术、保留成品于 scratchpad 并报 BLOCKED。处置：测试随代码迁移（上文第 8 点），`daily_test.go` 仅删该函数。
 
 ---
 
@@ -2612,3 +2670,4 @@ Expected: 改动只落在本计划「文件结构」表列出的文件上；`doc
 4. 周报按新顺序重排 + Data Quality 收为页脚一行 + Telegram 改求职者口播 —— spec §4.5。
 5. `docs/01-requirements.md` §1/§2/§5 按 spec §1.1 更新。
 6. 物化 `tech_share` 与 `swe_enriched` 到 `weekly_metric` —— spec §3.1 的审计载体（口径变更全量重算的依据），随第 4 项一起落在 cmd/report；展示路径不变，仍走现算。
+7. `internal/report` 的窗口助手（`sgt`/`WeekBounds`/`DayBounds`/`ISOWeekLabel`）收敛到 `metric.Window` —— 两份实现已有行为差异（report 版信任调用者预本地化，metric 版自己 `.In(SGT)`），不收敛迟早有人只修一份的边界 bug。随第 4 项周报重排一起做。
