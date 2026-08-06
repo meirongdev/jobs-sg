@@ -117,6 +117,38 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 	if len(r.Ranked) > RankedTechLimit {
 		r.Ranked = r.Ranked[:RankedTechLimit]
 	}
+	// Premium is computed over a rolling window, not one week: a single week's
+	// disclosed salaries do not survive being split per technology.
+	roll := Rolling(now, RollingDays)
+	allSalaries, err := salarySample(ctx, db, roll, lens, "")
+	if err != nil {
+		return nil, err
+	}
+	r.SalaryN = len(allSalaries)
+	r.MedianAll = Percentile(allSalaries, 0.5)
+	if r.SalaryTotal, err = sweCount(ctx, db, roll, lens); err != nil {
+		return nil, err
+	}
+
+	// Entry-friendliness shares the premium's rolling window: two columns of
+	// one table computed over different periods would be silently incomparable.
+	entry, err := entryShare(ctx, db, roll, lens)
+	if err != nil {
+		return nil, err
+	}
+	for i := range r.Ranked {
+		slug := r.Ranked[i].Slug
+		r.Ranked[i].EntryFriendly = entry[slug]
+
+		vals, err := salarySample(ctx, db, roll, lens, slug)
+		if err != nil {
+			return nil, err
+		}
+		r.Ranked[i].Premium = SampleCoverage(len(vals), MinSalarySamplesPerTech)
+		if !r.Ranked[i].Premium.Suppressed && r.MedianAll > 0 {
+			r.Ranked[i].PremiumPct = Percentile(vals, 0.5)/r.MedianAll - 1
+		}
+	}
 	r.Rising, r.Falling = momentumBoards(r.Ranked)
 	return r, nil
 }
@@ -192,4 +224,90 @@ func momentumBoards(ranked []TechStat) (rising, falling []TechStat) {
 		}
 	}
 	return rising, falling
+}
+
+// disclosedSalary limits every salary figure to publicly advertised monthly
+// ranges. The share of postings that disclose at all is itself a headline
+// number (spec §3.3) — these medians describe only that subset.
+const disclosedSalary = `AND j.salary_hidden=0 AND j.salary_type='Monthly'
+	AND j.salary_min IS NOT NULL AND j.salary_max IS NOT NULL`
+
+// salarySample returns the ascending midpoint salaries in the window, either
+// overall (slug == "") or for postings mentioning one technology.
+//
+// The per-technology form groups by posting before taking the value: a posting
+// carrying the technology from both the rule and LLM layers has two job_tech
+// rows, and counting it twice would skew the median toward it.
+func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug string) ([]float64, error) {
+	q := `SELECT (j.salary_min+j.salary_max)/2.0 ` + swePosted + lens.Where() + ` ` + disclosedSalary + ` ORDER BY 1`
+	args := w.Args()
+	if slug != "" {
+		q = `SELECT min((j.salary_min+j.salary_max)/2.0)
+			FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
+			WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?` +
+			lens.Where() + ` ` + disclosedSalary + ` AND t.tech_slug = ?
+			GROUP BY j.uuid ORDER BY 1`
+		args = append(args, slug)
+	}
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []float64
+	for rows.Next() {
+		var v float64
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// sweCount counts every SWE posting in the window under the lens, disclosed
+// salary or not — the denominator of the salary transparency rate.
+func sweCount(ctx context.Context, db *store.DB, w Window, lens Lens) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT count(*) `+swePosted+lens.Where(), w.Args()...).Scan(&n)
+	return n, err
+}
+
+// TransparencyPct is the share of SWE postings in the rolling window that
+// disclose a monthly salary. It is printed beside every salary figure so a
+// median over the disclosing subset cannot read as a market-wide number.
+func (r *TechReport) TransparencyPct() float64 {
+	if r.SalaryTotal == 0 {
+		return 0
+	}
+	return float64(r.SalaryN) / float64(r.SalaryTotal)
+}
+
+// entryShare returns slug -> share of postings mentioning it that are
+// entry-level. It answers "what do they actually ask a junior for", which the
+// overall ranking cannot. The window is the caller's choice; /tech passes the
+// premium's rolling window so the two table columns stay comparable.
+func entryShare(ctx context.Context, db *store.DB, w Window, lens Lens) (map[string]float64, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT t.tech_slug, count(DISTINCT j.uuid),
+		       count(DISTINCT CASE WHEN `+EntryPredicate+` THEN j.uuid END)
+		FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
+		WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`+lens.Where()+`
+		GROUP BY t.tech_slug`, w.Args()...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]float64{}
+	for rows.Next() {
+		var slug string
+		var total, entry int
+		if err := rows.Scan(&slug, &total, &entry); err != nil {
+			return nil, err
+		}
+		if total > 0 {
+			out[slug] = float64(entry) / float64(total)
+		}
+	}
+	return out, rows.Err()
 }
