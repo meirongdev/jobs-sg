@@ -255,6 +255,9 @@ func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug s
 			WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?` +
 			lens.Where() + ` ` + disclosedSalary + ` AND t.tech_slug = ?
 			GROUP BY j.uuid ORDER BY 1`
+		// lens.Where() contributes no bind placeholders by construction (its
+		// fragments are canned literals), so appending slug here keeps positional
+		// args aligned with the '?' order in the query text.
 		args = append(args, slug)
 	}
 	rows, err := db.QueryContext(ctx, q, args...)
