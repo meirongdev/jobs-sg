@@ -49,7 +49,9 @@ func TestNavRendersInReadingOrder(t *testing.T) {
 	// length gate below is what keeps a newly added page from silently escaping
 	// the order guarantee: add an item to navItems and this fails until someone
 	// consciously decides where it belongs.
-	want := []string{"/", "/tech", "/pay"}
+	// "/" is the live market snapshot; the weekly report sits last because it
+	// is the archive, not the thing a job seeker opens first.
+	want := []string{"/", "/tech", "/pay", "/companies", "/reports"}
 	if len(want) != len(navItems) {
 		// The remedy is spelled out here, not only in the doc comment above:
 		// someone fixing a red run from the failure text alone would otherwise

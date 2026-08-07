@@ -9,29 +9,29 @@ import (
 )
 
 // Between a fresh deploy and the first Monday 09:00 SGT report run there is no
-// latest.html, and "/" is the first entry in the nav every other page renders.
-// A visitor clicking it must not land on net/http's unstyled dead end.
-func TestRootWithoutAReportExplainsItselfAndKeepsTheNav(t *testing.T) {
+// latest.html, and /reports is in the nav every page renders. A visitor
+// clicking it must not land on net/http's unstyled dead end.
+func TestReportsWithoutAReportExplainsItselfAndKeepsTheNav(t *testing.T) {
 	s, dir := setupWebClock(t, nil)
 	if err := os.Remove(filepath.Join(dir, "report", "latest.html")); err != nil {
 		t.Fatal(err)
 	}
 
-	rec := get(t, s, "/")
+	rec := get(t, s, "/reports")
 	if rec.Code != http.StatusOK {
-		t.Errorf("/ = %d, want 200 — the page exists, its content is simply not generated yet", rec.Code)
+		t.Errorf("/reports = %d, want 200 — the page exists, its content is simply not generated yet", rec.Code)
 	}
 	body := rec.Body.String()
 	if strings.Contains(body, "404 page not found") {
-		t.Error("/ served net/http's bare 404 body")
+		t.Error("/reports served net/http's bare 404 body")
 	}
 	if !strings.Contains(body, "No weekly report yet") {
-		t.Errorf("/ should say why there is nothing here, got: %s", body)
+		t.Errorf("/reports should say why there is nothing here, got: %s", body)
 	}
 	// the way out: the live pages, which have numbers from day one
-	for _, href := range []string{`href="/tech"`, `href="/pay"`} {
+	for _, href := range []string{`href="/"`, `href="/tech"`, `href="/pay"`} {
 		if !strings.Contains(body, href) {
-			t.Errorf("/ should link %s so a visitor is not stranded", href)
+			t.Errorf("/reports should link %s so a visitor is not stranded", href)
 		}
 	}
 }

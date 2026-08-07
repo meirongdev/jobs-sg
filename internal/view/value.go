@@ -42,3 +42,25 @@ func Money(f float64) string {
 	}
 	return fmt.Sprintf("S$%.0f", f)
 }
+
+// Commas groups an integer in thousands.
+//
+// Used where the figures run large — the front page's board count is five
+// digits — because "86678" invites a miscount and "86,678" does not. The
+// per-week and per-technology counts elsewhere are small enough to read bare,
+// so they are left alone rather than churned.
+func Commas(n int) string {
+	s := fmt.Sprintf("%d", n)
+	neg := ""
+	if n < 0 {
+		neg, s = "-", s[1:]
+	}
+	var out []byte
+	for i, c := range []byte(s) {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, c)
+	}
+	return neg + string(out)
+}

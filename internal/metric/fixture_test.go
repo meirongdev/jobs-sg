@@ -100,7 +100,66 @@ func buildFixtureDB(path string) error {
 			return err
 		}
 	}
-	return sc.Err()
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	return closeFixturePostings(ctx, db)
+}
+
+// lifetimeBands are the listing-length buckets spec §3.5 reports, and the days
+// each seeded closure lands on — one comfortably inside every band, plus the
+// boundary values the bucketing has to get right.
+var lifetimeBands = []int{3, 6, 7, 10, 14, 15, 22, 30, 31, 45, 60, 61, 90}
+
+// closeFixturePostings marks part of the fixture as taken down.
+//
+// closed_at cannot come from the fixture file: it is not an API field. MCF
+// returns live postings only, and the weekly reconcile derives closure from a
+// posting's absence — so a JSONL of API responses can never carry one, and the
+// job lifetime in spec §3.5 had nothing to measure. This stands in for "the
+// reconcile has run and these postings went away".
+//
+// Deterministic on purpose, like the rest of the fixture: every third posting
+// closes, cycling through lifetimeBands, so the same DB is built on every run
+// and a test can assert an exact bucket count. Two thirds stay open, which is
+// what makes the right-censoring in §3.5 visible — the median of closed
+// postings is not the median of all of them.
+func closeFixturePostings(ctx context.Context, db *store.DB) error {
+	rows, err := db.QueryContext(ctx, `SELECT uuid, posting_date FROM job ORDER BY uuid`)
+	if err != nil {
+		return err
+	}
+	type closure struct {
+		uuid string
+		days int
+	}
+	var todo []closure
+	i := 0
+	for rows.Next() {
+		var uuid, posted string
+		if err := rows.Scan(&uuid, &posted); err != nil {
+			rows.Close()
+			return err
+		}
+		if i%3 == 0 {
+			todo = append(todo, closure{uuid, lifetimeBands[(i/3)%len(lifetimeBands)]})
+		}
+		i++
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, c := range todo {
+		// SQLite date arithmetic keeps this in one statement and mirrors how the
+		// lifetime query itself reads the pair back.
+		if _, err := db.ExecContext(ctx, `
+			UPDATE job SET closed_at = datetime(posting_date, '+' || ? || ' days')
+			WHERE uuid = ?`, c.days, c.uuid); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // seedFixture hands the test a disposable copy of the reference DB built by

@@ -52,9 +52,13 @@ func (s *Server) Close() error { return s.db.Close() }
 // /metrics is deliberately absent — see MetricsHandler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", s.handleRoot)
+	mux.HandleFunc("GET /", s.handleMarket)
 	mux.HandleFunc("GET /tech", s.handleTech)
 	mux.HandleFunc("GET /pay", s.handlePay)
+	mux.HandleFunc("GET /companies", s.handleCompanies)
+	// The weekly report keeps a permanent home, and /reports is where the
+	// archive is reachable now that / is the live snapshot.
+	mux.HandleFunc("GET /reports", s.handleLatestReport)
 	mux.HandleFunc("GET /w/{week}", s.handleWeek)
 	// Operational pages: kept as troubleshooting and data-freshness evidence,
 	// but out of the job-seeker nav. The old /daily paths stay as permanent
@@ -88,21 +92,17 @@ func (s *Server) MetricsHandler() http.Handler {
 	return mux
 }
 
-func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		s.notFound(w, "Page not found", "That URL does not exist on this site.")
-		return
-	}
-	// The weekly report is written by a CronJob, so between a fresh deploy and
-	// the first Monday 09:00 SGT run there is no latest.html — and "/" is the
-	// first entry in the nav every other page renders. Explain that rather than
-	// dead-ending a visitor on a bare 404, and point at the pages that do work:
-	// they are computed live and have numbers from day one.
+// handleLatestReport serves the most recent weekly report at /reports.
+//
+// The report is written by a CronJob, so between a fresh deploy and the first
+// Monday 09:00 SGT run there is no latest.html. Explain that rather than
+// dead-ending a visitor on a bare 404 — the live pages already have numbers.
+func (s *Server) handleLatestReport(w http.ResponseWriter, r *http.Request) {
 	if !s.reportExists("latest.html") {
 		s.serveNotice(w, http.StatusOK, "Weekly report",
 			"No weekly report yet",
 			"The first report is published Monday 09:00 SGT, covering the previous ISO week. Until then, the live pages below already have numbers.",
-			"/")
+			"/reports")
 		return
 	}
 	s.serveReportFile(w, r, "latest.html")
