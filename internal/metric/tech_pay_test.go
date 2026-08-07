@@ -118,9 +118,10 @@ func TestPremiumFollowsTheLens(t *testing.T) {
 	if senior.Salary.Disclosed == 0 {
 		t.Fatal("6+ band has no disclosed salaries in the fixture")
 	}
-	// Salary.Disclosed comes straight out of salarySample, so a smaller
-	// sample under the lens is itself the proof that the lens reaches the
-	// salary query. Do not assert the two medians differ — over random
+	// Salary.Disclosed is windowTransparency's conditional sum over the same
+	// window and lens, so a smaller count under the lens proves the lens
+	// reaches the disclosure query; the MedianAll check below proves it reaches
+	// salarySample too. Do not assert the two medians differ — over random
 	// fixture salaries that is a coin flip, and a flaky test is worse than
 	// no test.
 	if senior.Salary.Disclosed >= all.Salary.Disclosed {
