@@ -66,14 +66,20 @@ kind-wait:
 		deployment/jobs-sg-web -n jobs-sg --timeout=120s
 
 ## kind-smoke: health + metrics check over a temporary port-forward
+## /metrics is bound to its own listener (9090) so the public route cannot
+## reach it, so the smoke test checks both ports and asserts the public one
+## does NOT serve metrics.
 kind-smoke:
 	@set -e; \
 	kubectl --context $(KIND_CTX) port-forward -n jobs-sg \
-		svc/jobs-sg-web 18080:80 & PF=$$!; \
+		svc/jobs-sg-web 18080:80 18090:9090 & PF=$$!; \
 	sleep 3; \
 	curl -fsS http://127.0.0.1:18080/healthz; echo; \
-	curl -s -o /dev/null -w 'metrics HTTP %{http_code}\n' \
-		http://127.0.0.1:18080/metrics; \
+	curl -fsS -o /dev/null -w 'metrics (9090) HTTP %{http_code}\n' \
+		http://127.0.0.1:18090/metrics; \
+	code=$$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/metrics); \
+	echo "metrics on public port HTTP $$code (want 404)"; \
+	test "$$code" = "404" || { echo "FAIL: /metrics is reachable on the public port"; kill $$PF; exit 1; }; \
 	kill $$PF 2>/dev/null || true
 
 ## kind-e2e: full local end-to-end — cluster -> image -> overlay -> seed -> verify

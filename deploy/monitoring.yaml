@@ -11,7 +11,9 @@ spec:
   selector:
     matchLabels: {app: jobs-sg-web}
   endpoints:
-    - port: http
+    # The `metrics` Service port, not `http`: /metrics is bound to its own
+    # listener so the public HTTPRoute cannot reach it (deploy/web.yaml).
+    - port: metrics
       path: /metrics
       interval: 60s
 ---

@@ -25,8 +25,10 @@ spec:
         - name: web
           image: ghcr.io/meirongdev/jobs-sg
           command: ["/usr/local/bin/jobs-sg-web"]
-          args: ["--data-dir", "/data", "--addr", ":8080"]
-          ports: [{containerPort: 8080}]
+          args: ["--data-dir", "/data", "--addr", ":8080", "--metrics-addr", ":9090"]
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: metrics, containerPort: 9090}
           resources:
             requests: {cpu: 25m, memory: 64Mi}
             limits: {cpu: 200m, memory: 192Mi}
@@ -61,3 +63,6 @@ spec:
     - name: http
       port: 80
       targetPort: 8080
+    - name: metrics
+      port: 9090
+      targetPort: 9090

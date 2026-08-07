@@ -75,9 +75,16 @@ func setupWebClock(t *testing.T, now func() time.Time) (*Server, string) {
 
 func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 	t.Helper()
+	return getFrom(t, s.Handler(), path)
+}
+
+// getFrom exercises one specific handler, since the server binds two: the
+// public site and the separately-listened metrics endpoint.
+func getFrom(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -254,7 +261,7 @@ func TestPageCacheDropsEntriesAtCapacity(t *testing.T) {
 
 func TestMetricsFromDB(t *testing.T) {
 	s := setupWeb(t)
-	rec := get(t, s, "/metrics")
+	rec := getFrom(t, s.MetricsHandler(), "/metrics")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/metrics = %d", rec.Code)
 	}

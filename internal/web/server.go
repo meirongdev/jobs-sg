@@ -46,7 +46,10 @@ func New(dataDir string, now func() time.Time) (*Server, error) {
 // Close releases the read-only handle.
 func (s *Server) Close() error { return s.db.Close() }
 
-// Handler returns the HTTP handler with all routes.
+// Handler returns the public site: everything the HTTPRoute at
+// jobs.meirong.dev is allowed to reach.
+//
+// /metrics is deliberately absent — see MetricsHandler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.handleRoot)
@@ -62,6 +65,25 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /daily/{date}", s.redirectDailyDate)
 	mux.HandleFunc("GET /robots.txt", s.handleRobots)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	return mux
+}
+
+// MetricsHandler returns the Prometheus endpoint, to be bound to a listener of
+// its own.
+//
+// The site is fronted by an HTTPRoute matching PathPrefix "/", so anything on
+// the public mux is world-readable at jobs.meirong.dev. That is the right call
+// for the statistics — they are public labour-market data, which is why docs/02
+// §4.4 declines auth — but /metrics is a different category: enrich backlog
+// depth, per-run durations, cumulative error counts. Operational posture, not
+// content, and nothing about publishing job statistics requires publishing it.
+//
+// Splitting the listener rather than filtering at the gateway keeps the property
+// local to the process: the ServiceMonitor scrapes this port in-cluster, and a
+// later edit to the route cannot re-expose what was never bound to the public
+// listener in the first place.
+func (s *Server) MetricsHandler() http.Handler {
+	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	return mux
 }

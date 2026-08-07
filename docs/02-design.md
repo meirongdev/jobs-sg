@@ -229,13 +229,15 @@ Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature
 | `/daily` | **每日采集统计**：按 SGT 日聚合的运行明细表（kind/status/耗时/pages/归档/新增/SWE/更新/下架/errors/LLM）、日新增 SWE 柱状图、近 7 天技术栈 Top 15 | 请求时从 DB 现算渲染 |
 | `/daily/{YYYY-MM-DD}` | 单日下钻：逐条 run 记录、当日 role_family/seniority 分布、当日技术栈、当日首见职位列表（上限 200 条） | 同上 |
 | `/healthz` | 健康检查 | DB ping |
-| `/metrics` | Prometheus 指标 | 从 `ingest_run` 与 `job` 表现算 |
+| `/metrics` | Prometheus 指标（**独立监听端口 9090，不在公网路由上**） | 从 `ingest_run` 与 `job` 表现算 |
 
 - **两个页面、两种产出方式**：周报是「每周一次、需要推 Telegram、要可回溯归档」的产物，落静态文件；日更明细是「ingest 一跑完就要最新」的运维视图，02:20 SGT 的数据不该等到下一次 CronJob 才可见，因此与 `/metrics` 同样从 DB 现算（无写入，只读连接足够）。两页互相导航。
 - **SGT 日历日分桶**：时间戳按 UTC 存储，而 02:15 SGT 的 ingest 落在前一天 18:15 UTC——按 UTC 日分组会把每次采集记到前一天。SQL 侧用 `date(col,'+8 hours')`，Go 侧用 `.In(sgt)`。
 - 日页面窗口默认 30 天（`?days=` 可调，上限 90），并裁掉管线首次运行之前的空白日；活跃日之间的空缺**保留**，那是漏跑信号。
 - `/metrics` 从 `ingest_run` 与 `job` 表现算（状态在 DB 不在进程内，重启无损）
 - **不做认证**——内容是公开就业市场统计，无个人数据。若日后需要，按 bifrost 模式加 oauth2-proxy。
+- **但 `/metrics` 不属于「内容」**：它暴露 enrich 积压深度、各作业耗时、累计错误数，是运维姿态而非就业数据。HTTPRoute 是 `PathPrefix: /`，因此挂在公共 mux 上的一切都等于挂在 `jobs.meirong.dev` 上。故 `/metrics` 绑到**独立监听端口 9090**（`--metrics-addr`），Service 开第二个 `metrics` 端口供 ServiceMonitor 集群内抓取，HTTPRoute 不指向它。
+  选择拆监听端口而非在 Gateway 上加过滤：这样该性质由进程本身保证，日后改路由也重新暴露不了从未绑到公共监听器上的东西。两个监听器任一启动失败即整进程退出——只服务页面却静默丢掉 `/metrics` 的 Pod 看起来是健康的，而 [04](04-operations.md) §3.2 的每一条告警都会瞎掉。
 
 ---
 
