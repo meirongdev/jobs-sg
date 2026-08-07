@@ -42,9 +42,16 @@ type TechReport struct {
 	Lens             Lens
 }
 
-// swePosted is the shared predicate: SWE postings whose posting_date falls in
-// the window. Callers append Lens.Where(), which qualifies columns with `j.`.
-const swePosted = `FROM job j WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`
+// sweFrom and sweWhere are the two halves of "a reportable SWE posting in a
+// window", split so a query needing a JOIN can put one between them. swePosted
+// is the no-join composition. Every query that selects SWE postings must build
+// from these rather than retyping the predicate: A-2b adds closed_at filtering
+// here, and a hand-inlined copy would silently miss it.
+//
+// Callers append Lens.Where(), which qualifies columns with `j.`.
+const sweFrom = `FROM job j`
+const sweWhere = `WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`
+const swePosted = sweFrom + ` ` + sweWhere
 
 // enrichedPredicate marks a posting the enrichment pipeline has finished with.
 // enrich_done matters on its own: a posting whose extraction found nothing has
@@ -134,9 +141,8 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 	if err != nil {
 		return nil, err
 	}
-	r.Salary.Disclosed = len(allSalaries)
 	r.MedianAll = Percentile(allSalaries, 0.5)
-	if r.Salary.Total, err = sweCount(ctx, db, roll, lens); err != nil {
+	if r.Salary, err = windowTransparency(ctx, db, roll, lens); err != nil {
 		return nil, err
 	}
 
@@ -181,8 +187,8 @@ func enrichedCount(ctx context.Context, db *store.DB, w Window, lens Lens) (int,
 func techCounts(ctx context.Context, db *store.DB, w Window, lens Lens) (map[string]int, map[string]string, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT t.tech_slug, min(t.tech_kind), count(DISTINCT j.uuid)
-		FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
-		WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`+lens.Where()+`
+		`+sweFrom+` JOIN job_tech t ON t.job_uuid=j.uuid
+		`+sweWhere+lens.Where()+`
 		GROUP BY t.tech_slug`, w.Args()...)
 	if err != nil {
 		return nil, nil, err
@@ -266,9 +272,8 @@ func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug s
 	args := w.Args()
 	if slug != "" {
 		q = `SELECT min(` + salaryMidpoint + `)
-			FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
-			WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?` +
-			lens.Where() + ` ` + disclosedSalary + ` AND t.tech_slug = ?
+			` + sweFrom + ` JOIN job_tech t ON t.job_uuid=j.uuid
+			` + sweWhere + lens.Where() + ` ` + disclosedSalary + ` AND t.tech_slug = ?
 			GROUP BY j.uuid ORDER BY 1`
 		// lens.Where() contributes no bind placeholders by construction (its
 		// fragments are canned literals), so appending slug here keeps positional
@@ -291,14 +296,6 @@ func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug s
 	return out, rows.Err()
 }
 
-// sweCount counts every SWE posting in the window under the lens, disclosed
-// salary or not — the denominator of the salary transparency rate.
-func sweCount(ctx context.Context, db *store.DB, w Window, lens Lens) (int, error) {
-	var n int
-	err := db.QueryRowContext(ctx, `SELECT count(*) `+swePosted+lens.Where(), w.Args()...).Scan(&n)
-	return n, err
-}
-
 // entryShare returns slug -> share of postings mentioning it that are
 // entry-level. It answers "what do they actually ask a junior for", which the
 // overall ranking cannot. The window is the caller's choice; /tech passes the
@@ -307,8 +304,8 @@ func entryShare(ctx context.Context, db *store.DB, w Window, lens Lens) (map[str
 	rows, err := db.QueryContext(ctx, `
 		SELECT t.tech_slug, count(DISTINCT j.uuid),
 		       count(DISTINCT CASE WHEN `+EntryPredicate+` THEN j.uuid END)
-		FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
-		WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`+lens.Where()+`
+		`+sweFrom+` JOIN job_tech t ON t.job_uuid=j.uuid
+		`+sweWhere+lens.Where()+`
 		GROUP BY t.tech_slug`, w.Args()...)
 	if err != nil {
 		return nil, err

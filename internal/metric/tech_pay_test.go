@@ -43,6 +43,33 @@ func TestPremiumBaselineIsARealAdvertisedSalary(t *testing.T) {
 	}
 }
 
+func TestTechTransparencyIsOneAtomicPair(t *testing.T) {
+	// Disclosed and Total come from a single row now, so Disclosed > Total is
+	// unrepresentable rather than merely unobserved. Also pin that switching to
+	// the atomic query did not change the disclosed count: it must still equal
+	// the number of rows the salary sample returns.
+	ctx := context.Background()
+	db := seedFixture(t)
+	r, err := TechReportFor(ctx, db, fixtureNow, Lens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Salary.Disclosed > r.Salary.Total {
+		t.Errorf("disclosed %d exceeds total %d", r.Salary.Disclosed, r.Salary.Total)
+	}
+	if r.Salary.Total == 0 {
+		t.Fatal("fixture window has no SWE postings")
+	}
+	var sample int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) `+swePosted+` `+disclosedSalary, Rolling(fixtureNow, RollingDays).Args()...).Scan(&sample); err != nil {
+		t.Fatal(err)
+	}
+	if r.Salary.Disclosed != sample {
+		t.Errorf("Disclosed = %d, want %d (the disclosed-salary sample size)", r.Salary.Disclosed, sample)
+	}
+}
+
 func TestPremiumSuppressedBelowSampleThreshold(t *testing.T) {
 	db := seedFixture(t)
 	r, err := TechReportFor(context.Background(), db, fixtureNow, Lens{})

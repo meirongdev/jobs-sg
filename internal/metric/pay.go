@@ -224,15 +224,6 @@ func ladder(ctx context.Context, db *store.DB, w Window, lens Lens) ([]PayBand, 
 	return out, nil
 }
 
-// windowTransparency is the disclosure rate over the whole window.
-func windowTransparency(ctx context.Context, db *store.DB, w Window, lens Lens) (Transparency, error) {
-	var t Transparency
-	err := db.QueryRowContext(ctx, `
-		SELECT count(*), coalesce(sum(CASE WHEN `+disclosedSalaryPredicate+` THEN 1 ELSE 0 END),0) `+
-		swePosted+lens.Where(), w.Args()...).Scan(&t.Total, &t.Disclosed)
-	return t, err
-}
-
 // transparencyByCompanyType answers "who tells you the number before you
 // apply", ordered by disclosure rate so the transparent employers surface.
 // Types below MinPostingsPerCompanyStat are suppressed rather than ranked on a
@@ -241,8 +232,8 @@ func transparencyByCompanyType(ctx context.Context, db *store.DB, w Window, lens
 	rows, err := db.QueryContext(ctx, `
 		SELECT coalesce(c.company_type,'Other'), count(*),
 		       coalesce(sum(CASE WHEN `+disclosedSalaryPredicate+` THEN 1 ELSE 0 END),0)
-		FROM job j LEFT JOIN company c ON c.uen=j.company_uen
-		WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`+lens.Where()+`
+		`+sweFrom+` LEFT JOIN company c ON c.uen=j.company_uen
+		`+sweWhere+lens.Where()+`
 		GROUP BY 1`, w.Args()...)
 	if err != nil {
 		return nil, err
