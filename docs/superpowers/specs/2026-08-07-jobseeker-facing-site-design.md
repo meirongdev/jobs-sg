@@ -143,6 +143,20 @@ days = julianday(date(closed_at)) - julianday(date(posting_date))
 - 精度下限 1 天（日批采集），标注之。
 - 幽灵岗信号：在架且挂牌 > 60 天的占比、`repost_count > 0` 的占比。
 
+> **⚠️ 动工前必读——`closed_at` 对「过期但仍在挂」的岗位会逐周前移（2026-08-07 记录，未修）。**
+>
+> 现在每轮对账对同一个岗位会做两件事：扫描见到它 → `UpsertJob` 清 `closed_at`（reopen，docs/02 §4.1）；随后 `CloseExpired` 见其 `expiry_date < today` → 重新置 `closed_at=now()`。若 MCF 把某岗位挂过了 `expiry_date` 还继续返回，这个岗位的 `closed_at` 就每周往后挪一次，本节的 `days` 随之逐周变大——寿命指标会读到一个只增不减的假值。
+>
+> **没有直接修，是因为修它要先定口径，而这个口径该由本节的实现者定，不该顺手替它选**：
+> - 口径 A —— **API 在架即在架**：MCF 还返回它就说明雇主没撤，`expiry_date` 只是过期的元数据，那么 `CloseExpired` 本身才是错的（它关掉了 API 说还活着的岗位）。
+> - 口径 B —— **`expiry_date` 说了算**：那么 reopen 必须知道过期与否，只对未过期的岗位清 `closed_at`。
+>
+> 两者对首页「在架活跃量」这个头条数字的影响方向相反，不是实现细节。
+>
+> 另外**没有证据表明 MCF 真会这样**——本条是读代码推出来的，不是观测到的。上线后判断方法：看每轮对账的 `ingest_run.jobs_closed`（`/ops` 有渲染）。正常情况下到期关闭数应逐步趋近于 0；若它每周稳定在同一个非零量级，就是这个循环在转。
+>
+> 实现成本备忘：口径 B 需要把「今天」传进 `UpsertJob`（签名改动波及 8 个测试文件的 12 处调用），**不要**改用 SQL 里的 `date('now','+8 hours')` —— 那会让 `TestReconcileReopensReturningJob` 依赖真实时钟，fixture 里 `2026-12-31` 的到期日一进 2027 年就会让测试无故变红。
+
 ### 3.6 竞争度分层（`/`、`/companies`）
 
 ```sql

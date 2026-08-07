@@ -118,6 +118,15 @@ func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawP
 	// for good. Expiry is still authoritative: CloseExpired runs after the scan
 	// in the same round, so a posting listed past its expiry_date settles back
 	// on closed rather than flapping.
+	//
+	// Open question, deliberately not settled here: a posting MCF keeps listing
+	// past its expiry_date is reopened and re-closed every reconcile, so its
+	// closed_at walks forward weekly. The lifecycle metric in spec §3.5 reads
+	// closed_at − posting_date and would see that as a posting that lives longer
+	// each week. Settling it means choosing whether the API listing or
+	// expiry_date is authoritative, which moves the headline active count in
+	// opposite directions — the spec section that consumes it carries the two
+	// options and how to tell from production whether it happens at all.
 	_, err = tx.ExecContext(ctx, `
 		UPDATE job SET job_post_id=?, title=?, description_sha256=?, company_uen=?,
 		  ssoc_code=?, occupation_id=?, category=?, position_level=?, employment_type=?,
