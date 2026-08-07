@@ -178,10 +178,12 @@ func Nav(active string) template.HTML {
 Run: `go test ./... -count=1 && go vet ./... && gofmt -l internal/`
 Expected: 全部 PASS，gofmt 空。**注意** `internal/web/web_test.go` 的 `TestOpsIsNotInTheJobSeekerNav` 会切出 `<nav class="nav">` 块检查里面没有 `/ops` —— `Nav` 的输出仍是这个结构，该测试必须原样通过；若它红了说明 `Nav` 的包装标记写错了。
 
-再跑一次断言导航现在只有一处定义：
+再跑一次断言导航现在只有一处**定义**：
 
-Run: `grep -rn '<nav class="nav">' internal/ --include='*.go'`
+Run: `grep -rn '<nav class="nav">' internal/ --include='*.go' | grep -v '_test.go'`
 Expected: 只有 `internal/view/nav.go` 一处命中。
+
+（排除 `_test.go` 是必须的：`internal/web/web_test.go` 的 `TestOpsIsNotInTheJobSeekerNav` 用这个字符串当搜索锚点切出导航块，那是断言而非模板。初版门槛没排除测试文件，实现时会看到两处命中——已按此更正。）
 
 - [ ] **Step 6: Commit**
 
@@ -189,6 +191,8 @@ Expected: 只有 `internal/view/nav.go` 一处命中。
 git add internal/view/nav.go internal/view/nav_test.go internal/view/tech.go internal/report/render.go internal/report/daily_render.go
 git commit -m "refactor(view): collapse four hand-written navs into view.Nav" -- internal/view/nav.go internal/view/nav_test.go internal/view/tech.go internal/report/render.go internal/report/daily_render.go
 ```
+
+> 执行记录 2026-08-07：已执行（`98dcb3a`，两个新文件与本节代码逐字节一致，四处调用点各带正确的 active 值，`TestOpsIsNotInTheJobSeekerNav` 原样通过）。实现者上报 grep 门槛不符（两处命中而非一处）——是计划的门槛漏写了 `grep -v '_test.go'`，非实现缺陷；已按上文更正。
 
 ---
 
@@ -317,14 +321,21 @@ const disclosedSalary = `AND ` + disclosedSalaryPredicate
 
 - [ ] **Step 5: 更新两处消费者**
 
-`internal/metric/tech_pay_test.go` 的 `TestPremiumBaselineIsARealAdvertisedSalary` 中，`r.SalaryN` → `r.Salary.Disclosed`、`r.SalaryTotal` → `r.Salary.Total`、`r.TransparencyPct()` → `r.Salary.Pct()`（三处断言的语义与消息不变）。`TestPremiumFollowsTheLens` 中 `senior.SalaryN`/`all.SalaryN` 同样改为 `.Salary.Disclosed`。
+`internal/metric/tech_pay_test.go` 的 `TestPremiumBaselineIsARealAdvertisedSalary` 中，`r.SalaryN` → `r.Salary.Disclosed`、`r.SalaryTotal` → `r.Salary.Total`、`r.TransparencyPct()` → `r.Salary.Pct()`。`TestPremiumFollowsTheLens` 中 `senior.SalaryN`/`all.SalaryN` 同样改为 `.Salary.Disclosed`。断言的**语义**不变；`t.Errorf` 的**措辞**要跟着改——其中一条消息字面量里写着 `"TransparencyPct = %v, want SalaryN/SalaryTotal = %v"`，留着它就是真实遗留（Step 6 的门槛会命中），把旧字段名换成新字段名即可。同一文件里提到旧字段名的注释同样跟改。
 
 `internal/view/tech.go` 的 Section 3 note：`{{.SalaryN}} of {{.SalaryTotal}}` → `{{.Salary.Disclosed}} of {{.Salary.Total}}`，`{{pct .TransparencyPct}}` → `{{pct .Salary.Pct}}`。
 
 - [ ] **Step 6: 确认全绿**
 
 Run: `go test ./... -count=1 && go vet ./... && gofmt -l internal/`
-Expected: PASS。`grep -rn 'SalaryN\|SalaryTotal\|TransparencyPct' internal/` 应零命中。
+Expected: PASS。
+
+再验证旧字段/方法确已无人引用——按**访问形式**匹配，不要匹配裸标识符：
+
+Run: `grep -rnE '\.SalaryN|\.SalaryTotal|\.TransparencyPct\(|SalaryN:|SalaryTotal:' internal/`
+Expected: 零命中。
+
+（不要用 `grep -rn 'SalaryN\|SalaryTotal\|TransparencyPct' internal/`——它会命中计划要求原样写下的测试函数名 `TestTransparencyPct`；也不要退而用 `grep -v '_test.go'` 掩盖，因为真实遗留恰恰可能在测试文件里：`tech_pay_test.go` 本来就引用 `.SalaryN`。访问形式的正则两头都覆盖到。初版门槛写的是裸标识符，已按此更正。）
 
 - [ ] **Step 7: Commit**
 
@@ -332,6 +343,8 @@ Expected: PASS。`grep -rn 'SalaryN\|SalaryTotal\|TransparencyPct' internal/` �
 git add internal/metric/transparency.go internal/metric/transparency_test.go internal/metric/tech.go internal/metric/tech_pay_test.go internal/view/tech.go
 git commit -m "refactor(metric): one Transparency type behind every salary figure" -- internal/metric/transparency.go internal/metric/transparency_test.go internal/metric/tech.go internal/metric/tech_pay_test.go internal/view/tech.go
 ```
+
+> 执行记录 2026-08-07：已执行（`16c7711`）。两处计划缺陷经实现者上报后更正：①Step 6 的门槛 grep 匹配裸标识符，会命中本节要求原样写下的测试函数名 `TestTransparencyPct`——已改为按访问形式匹配（`\.SalaryN` 等），且明确不能用 `grep -v '_test.go'` 掩盖，因为真实遗留恰在测试文件里；②Step 5 一边说"消息不变"一边要求门槛零命中，而那条消息字面量里就写着旧字段名——实现者判断硬门槛优先并改写措辞，判断正确，本节已改为显式要求跟改措辞。`tech.go` 的 diff 经确认只含透明率字段、两处赋值、删除的方法、SQL 常量重构，外加 gofmt 因类型名变长而对结构体尾注释列的机械重排；动量/溢价/榜单逻辑未动。
 
 ---
 
