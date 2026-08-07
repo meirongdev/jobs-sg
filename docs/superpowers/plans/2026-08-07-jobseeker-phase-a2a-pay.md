@@ -193,6 +193,12 @@ git commit -m "refactor(view): collapse four hand-written navs into view.Nav" --
 ```
 
 > 执行记录 2026-08-07：已执行（`98dcb3a`，两个新文件与本节代码逐字节一致，四处调用点各带正确的 active 值，`TestOpsIsNotInTheJobSeekerNav` 原样通过）。实现者上报 grep 门槛不符（两处命中而非一处）——是计划的门槛漏写了 `grep -v '_test.go'`，非实现缺陷；已按上文更正。
+>
+> 执行记录（补）：质量 review 对本任务施加了 Task 3 那样的对抗压力，两个变异都毫发无损通过全套测试——①倒转 `navItems` 顺序；②加一条指向未注册路由的 `/salary`（后者正是 `98dcb3a` 到 `3a07ff4` 之间 `/pay` 死链的同型错误）。以 `22c27e8` 补两项测试后，再一轮复核用内联 SVG 的 `xlink:href="#ico-/"` 证明 href 扫描器会 **panic 而非假通过**，且 Go 遇未恢复 panic 会中止整个测试二进制——实测 27 个测试只跑 26 个，没跑到的恰是紧随其后声明的 `TestRedirectTargetDoesNotAccumulateAcrossRequests`，即崩溃会静默吞掉邻居的回归信号。以 `7b64d47` 收口：非路径 href 改为可归因失败、`want` 保留硬编码独立预言机 + 加 `len(want) != len(navItems)` 长度门强制维护。
+>
+> 执行记录（终）：最后一轮复核 ✅ 通过，另提两条 Minor，均由协调者直接以 `9a0c0c7` 收口（各一行）。①**长度门可以被无意识地满足**：复核实测把 `want` 改成从 `navItems` 派生后，`len(want)` 恒等于 `len(navItems)`，门变永真、倒转与插入两个变异重新通过——即我那个自毁 bug 会从门自己的失败路径钻回来。门守得住"新增项被忽略",守不住"派生重引入同义反复",而唯一防线是注释；关键是**失败信息里原本没有这句警告**，只看红色 CI 报错去修的人不会往上翻文档注释。已把"widen want BY HAND … do not derive want from navItems"写进 `t.Fatalf`。②`//host` 是路径形状、能过裸 `HasPrefix(h, "/")`，而 ServeMux 对重复斜杠回 307 而非 404，于是一个复制粘贴多打的斜杠会渲染出跨源的导航链接而测试全绿。`navItems` 是编译期字面量，所以这是**拼写错误的守卫而非安全边界**；已加 `|| strings.HasPrefix(h, "//")`，并在 scratch worktree 里实证该分支确实拒绝。
+>
+> **协调者自曝一处错误**：这轮我先给出的修法是"把 `want` 从 `navItems` 派生"，那是自毁——拿同一序列跟自己比，任何排列都通过，连完全倒转都不再报错。实现者实测发现后 BLOCKED 上报、拒绝按错指令提交。这与本会话早些时候我警告另一实现者"期望值从被测代码反推就什么都证明不了"是同一个坑，我自己踩了。教训：给测试的期望值必须有独立于被测对象的来源；"自动扩展到未来新增项"这个诉求应当用**强制维护的门**（长度不符即失败）实现，而不是用派生。
 
 ---
 
@@ -1073,6 +1079,8 @@ git add internal/metric/pay.go internal/metric/pay_test.go
 git commit -m "feat(metric): add pay percentile grid, experience ladder and transparency" -- internal/metric/pay.go internal/metric/pay_test.go
 ```
 
+> 执行记录（补）：spec review 发现 `ladderBands` 对**负数** `min_years_exp` 五档全不匹配——该岗位从每个 rung 的 `Postings` 与分位数里静默消失；`min_years_exp` 是无 CHECK 的 INTEGER，由 `nullInt(j.MinimumYearsExperience)` 从 MCF JSON 原样透传，负值端到端可表示。已以 `d3c2496` 修正：`"0"` 档谓词 `= 0` → `<= 0`（负数要求的唯一合理读法就是"不要求经验"，且与本包既有惯例一致——`lens.go` 的 `0-2` 档与 `coverage.go` 的 `EntryPredicate` 都用 `<= 2` 而非 `BETWEEN 0 AND 2`），并补 `TestLadderBandsAccountForEveryPosting`：种一条 `min_years_exp=-3` 的 SWE 岗位，断言各档 `Postings` 之和等于窗口内 SWE 总数。复核确认该测试是**结构性**的而非只钉住负数这一例——把 `"3-5"` 改成 `BETWEEN 3 AND 4` 也会红（286 vs 316）。已知边界：它依赖 fixture 密度，若某个 gap 恰好开在 fixture 在窗口内没有的取值上仍会漏。
+>
 > 执行记录 2026-08-07：已执行（`82b4e09`，46 测试全绿，fixture 在每处断言均如预测，无 BLOCKED）。两点记录：①本节 `PayReport` 结构体的字面文本不是 gofmt-clean——我加 `RoleTotals`（较长字段名）时没重排其余字段的尾注释列，实现按 `gofmt -w` 补齐（纯空白，且 Step 4 的门槛要求 `gofmt -l` 为空）；②排序纪律实际有**四**处样本装配需要顾及，比本节注释点名的三处多一个：`Overall` 是在 `cells` map 上双层遍历累积的，Go 的 map 迭代顺序随机，是四处里最无序的——代码里的 `sort.Float64s(overall)` 已兜住，但注释应点明这一处而非只说"拼接后重排"。
 
 ---
@@ -1339,6 +1347,8 @@ git add internal/view/pay.go internal/view/css.go internal/web/pay.go internal/w
 git commit -m "feat(web): serve /pay with the percentile grid, ladder and disclosure rates" -- internal/view/pay.go internal/view/css.go internal/web/pay.go internal/web/server.go internal/web/pay_test.go
 ```
 
+> 执行记录（补）：质量 review 两条 Important 以 `4f94cf7` 跟进，两条都是本计划的缺陷。①阶梯柱图渲染裸数字（`3400`）而正下方表格写 `S$3,400`——`Bar()` 没有单位概念，其兄弟 `Column()` 有，这是 A-1 终审抓过的"单位撒谎"同类复现在旗舰页。修法：把 `Bar` 的实现抽成私有 `bar(kvs, maxBars, unit, labelFn)`，`Bar`（裸计数）与新 `BarMoney`（货币）各是一层薄包装——`Bar` 签名不变，`/tech` 与 `/ops` 三个调用点零改动。②抑制阈值被写成英文散文（"fewer than 5"）而非从 `MinSalarySamplesPerCell`/`MinPostingsPerCompanyStat` 插值，而 `/tech` 的 `MomentumFloor` 早有先例。修法：`PayReport` 加 `CellFloor`/`CompanyFloor` 并在模板插值；"a quartile over **four** postings"里那个 floor−1 的数字改成 "a handful of"，不硬凑插值。同批两条 Minor：`.ByCompany` 与空阶梯图补 `/tech` 式的空状态文案；Section 2 加一句说明"网格的 Seniority 是标题/职级/年限的综合分类，阶梯的档位是纯粹的申报年限，两者不逐行对应"。
+>
 > 执行记录 2026-08-07：实现者在完成三个新文件（已自证与本节代码逐字节一致）并改好 css/server 之后、动手做人工渲染检查时被账户级会话上限中断，未提交。协调者接手核验：三个文件对 plan 代码块 `diff` 均 IDENTICAL（确认测试文件没留探针——中断发生在动手前）、css 恰两行、server 恰一行、全仓 10 包绿、vet/gofmt 干净，遂按本节 pathspec 提交（`3a07ff4`）。同批清理了一个死掉的 reviewer 遗留的 scratch worktree。
 
 ---
@@ -1372,5 +1382,10 @@ Expected: 只落在本计划「文件结构」表列出的文件上。特别确�
 ## 交接给 A-2b / A-2c
 
 - **A-2b（`/` + `/companies`）**：需要 `buildFixtureDB` 灌 `closed_at`（见本计划开头的 A-1 更正），寿命指标按 spec §3.5 只统计已下架岗位并标注右删失；竞争度按 §3.6 归一化为日均投递。`/` 会把首页语义从静态周报换成现算快报——那时 `view.navItems` 的第一项要从 `Weekly report` 改成 `Market`，并给周报另找入口（`/w/{week}` 已存在），这正是 Task 1 收敛导航要付的红利。
+- **交给 A-2c 的新增收敛项（本次 review 发现，记录不修）**：
+  - `swePosted` 的 `FROM job j WHERE …` 一体式形状塞不进 `LEFT JOIN`，导致 `transparencyByCompanyType` 手抄了同一份谓词。A-2b 要给活跃岗位加 `closed_at` 过滤时，`swePosted` 一改这份手抄就会悄悄漏掉。收敛办法：把 `swePosted` 拆成可组合的 `FROM` 片段 + 共享 `WHERE` 片段。
+  - `Transparency` 允许 `Disclosed > Total`（会渲染出"104.0%"这种貌似合理的数）。`pay.go` 的两个构造点都用单行 `count(*)` + 条件 `sum()`，结构上不可能违反；只有 `TechReport` 用两次独立查询算 Disclosed 和 Total，理论上可达。本包惯例是"不该发生就响亮地死"（`Percentile` panic、`ParseLens` 拒绝），但两者风险性质不同：`Percentile` 的 panic 守的是确定性的程序员错误、每次测试运行都会先暴露；`Pct()` 的 panic 会在依赖数据与时序的条件下、于生产的渲染路径上触发。权衡后记录不修。**真要闭合的话，最便宜的办法不是 panic-vs-容忍之争，而是把 `TechReport` 的构造改成像 `pay.go` 两个构造点那样单查询原子化**——那样这个状态根本不可表示，无需裁决。
+  - `/pay` 宽表格无粘性首列：手机上右滑到 Platform/Security 列会看不见自己在读哪一资历行。可用但不舒服，纯 CSS 工作。
+- **流程教训（写给后续计划的 review 指令）**：Task 4 的 spec review 做"抽掉排序会不会 panic"的实证时，是在**真实工作区**里逐个改 `pay.go` 再 `git checkout` 还原的，尽管指令写了只读。每次都还原正确、事后核过字节一致，但本会话有 4 个 agent 因会话上限/连接中断暴死——若它死在抽掉排序那一刻，工作区就留着坏文件。后续 review 指令必须写死：**变异实验只能在 scratch worktree 里做，真实工作区一个字节都不许改**，并要求报告里说明实验在哪跑的。
 - **仍在 A-1 待办上、本计划未动的**：`lensNav` 的四处 `metric.Lens{...}` 从头构造字面量改 copy-and-override（触发条件是"加第三个镜头维度"，`/pay` 仍只用 exp+role，未触发）；`EntryFriendly` 是否需要自己的 `Coverage`（`/tech` 的模型问题）；`redirectDailyDate` 的未来日期绕路。三项保持记账。
 - **A-2c（对外口径）**：A-1 待办 6-9（`weekly_metric` 物化 `tech_share`/`swe_enriched`、report 的窗口助手收敛到 `metric.Window`、`pct`/`money`/`topn` 换成 `view` 版、`salaryMedian`/`salaryByRole` 改走 `metric` 的薪资口径）全部随周报重排一起做。本计划已提前结清其中的第 1、10 项，并把 `disclosedSalaryPredicate`/`salaryMidpoint` 抽成常量、`Transparency` 收成一份，第 9 项的收敛面因此变小。
