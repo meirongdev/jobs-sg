@@ -355,7 +355,13 @@ func TestEveryNavHrefResolvesToARegisteredRoute(t *testing.T) {
 		// to httptest.NewRequest, which panics — and a panic here aborts the whole
 		// package binary, silently skipping every test declared after this one.
 		// Fail attributably instead.
-		if !strings.HasPrefix(h, "/") {
+		// "//host" is path-shaped enough to pass a bare HasPrefix check, but a
+		// browser reads it as an absolute URL on another origin, and ServeMux
+		// answers it with a 307 rather than the 404 this test looks for — so a
+		// doubled slash from a copy-paste would render an off-site nav link with
+		// the suite green. navItems is a compile-time literal, so this is a typo
+		// guard, not a security boundary.
+		if !strings.HasPrefix(h, "/") || strings.HasPrefix(h, "//") {
 			t.Errorf("extracted a non-path href %q — the nav markup changed shape, check the scanner", h)
 			continue
 		}

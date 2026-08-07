@@ -51,7 +51,12 @@ func TestNavRendersInReadingOrder(t *testing.T) {
 	// consciously decides where it belongs.
 	want := []string{"/", "/tech", "/pay"}
 	if len(want) != len(navItems) {
-		t.Fatalf("navItems has %d entries but this test pins %d — widen want and place the new page deliberately",
+		// The remedy is spelled out here, not only in the doc comment above:
+		// someone fixing a red run from the failure text alone would otherwise
+		// reach for `for i, it := range navItems { want[i] = it.Href }`, which
+		// keeps this gate tautologically true and silently restores the
+		// compare-the-slice-against-itself bug the comment warns about.
+		t.Fatalf("navItems has %d entries but this test pins %d — widen want BY HAND, placing the new page deliberately; do not derive want from navItems",
 			len(navItems), len(want))
 	}
 	html := string(Nav(""))
