@@ -41,16 +41,24 @@ func techBars(stats []metric.TechStat, n int) []metric.KV {
 
 // lensNav renders the experience/role pickers, marking the active values.
 func lensNav(page string, active metric.Lens) template.HTML {
+	// Each control copies the active lens and overrides its OWN dimension.
+	// Building these from scratch — metric.Lens{Exp: band, Role: active.Role} —
+	// silently resets any dimension the literal forgets, so the day a third one
+	// is added, clicking an experience band would clear it with no error
+	// anywhere. Copy-and-override cannot forget a field it does not name.
+	withExp := func(exp string) metric.Lens { l := active; l.Exp = exp; return l }
+	withRole := func(role string) metric.Lens { l := active; l.Role = role; return l }
+
 	var b bytes.Buffer
 	b.WriteString(`<div class="lens">Experience: `)
-	writeLensLink(&b, page, metric.Lens{Role: active.Role}, "all", active.Exp == "")
+	writeLensLink(&b, page, withExp(""), "all", active.Exp == "")
 	for _, band := range metric.ExpBands() {
-		writeLensLink(&b, page, metric.Lens{Exp: band, Role: active.Role}, band, active.Exp == band)
+		writeLensLink(&b, page, withExp(band), band, active.Exp == band)
 	}
 	b.WriteString(`</div><div class="lens">Role: `)
-	writeLensLink(&b, page, metric.Lens{Exp: active.Exp}, "all", active.Role == "")
+	writeLensLink(&b, page, withRole(""), "all", active.Role == "")
 	for _, role := range metric.RoleFamilies() {
-		writeLensLink(&b, page, metric.Lens{Exp: active.Exp, Role: role}, role, active.Role == role)
+		writeLensLink(&b, page, withRole(role), role, active.Role == role)
 	}
 	b.WriteString(`</div>`)
 	return template.HTML(b.String())

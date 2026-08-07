@@ -289,8 +289,8 @@ func TestMetricsFromDB(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"jobs_sg_last_success_timestamp_seconds{kind=\"incremental\"}",
-		"jobs_sg_jobs_total{state=\"active\"} 1",
-		"jobs_sg_jobs_total{state=\"closed\"} 0",
+		"jobs_sg_jobs{state=\"active\"} 1",
+		"jobs_sg_jobs{state=\"closed\"} 0",
 		"jobs_sg_enrich_backlog",
 	} {
 		if !strings.Contains(body, want) {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/meirongdev/jobs-sg/internal/ingest"
+	"github.com/meirongdev/jobs-sg/internal/sgt"
 )
 
 func main() {
@@ -28,12 +29,7 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	// FixedZone, not LoadLocation: the scratch runtime image carries no tzdata,
-	// so LoadLocation returned nil and time.In(nil) panicked on every run.
-	// SGT has been a fixed UTC+8 with no DST since 1982; same idiom as
-	// cmd/report and internal/report/metrics.go.
-	sgt := time.FixedZone("SGT", 8*3600)
-	isSunday := time.Now().In(sgt).Weekday() == time.Sunday
+	isSunday := time.Now().In(sgt.Zone).Weekday() == time.Sunday
 	doReconcile := *reconcile || isSunday
 
 	ctx := context.Background()

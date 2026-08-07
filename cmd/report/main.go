@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/meirongdev/jobs-sg/internal/report"
+	"github.com/meirongdev/jobs-sg/internal/sgt"
 	"github.com/meirongdev/jobs-sg/internal/store"
 )
 
@@ -25,19 +26,18 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	sgt := time.FixedZone("SGT", 8*3600)
 	var monday time.Time
 	if *week != "" {
-		t, err := time.ParseInLocation("2006-01-02", *week, sgt)
+		t, err := time.ParseInLocation("2006-01-02", *week, sgt.Zone)
 		if err != nil {
 			slog.Error("bad --week", "err", err)
 			os.Exit(1)
 		}
 		monday = t
 	} else {
-		now := time.Now().In(sgt)
+		now := time.Now().In(sgt.Zone)
 		offset := (int(now.Weekday()) + 6) % 7 // days since Monday
-		thisMonday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, sgt).AddDate(0, 0, -offset)
+		thisMonday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, sgt.Zone).AddDate(0, 0, -offset)
 		monday = thisMonday.AddDate(0, 0, -7) // completed week
 	}
 

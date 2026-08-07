@@ -2,12 +2,13 @@ package metric
 
 import (
 	"fmt"
+	"github.com/meirongdev/jobs-sg/internal/sgt"
 	"time"
 )
 
-// SGT is the site timezone: every bucket is an SGT calendar period while
-// timestamps are stored as UTC (docs/03 §2).
-var SGT = time.FixedZone("SGT", 8*3600)
+// SGT is the site timezone, re-exported so callers of this package need not
+// import another for it.
+var SGT = sgt.Zone
 
 // RollingDays is the standard trailing window for salary and company stats.
 // One window length for every rolling metric, on purpose — per-metric windows

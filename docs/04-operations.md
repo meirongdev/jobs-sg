@@ -130,10 +130,10 @@ spec:
 # gauge
 jobs_sg_last_success_timestamp_seconds{kind="incremental|full_reconcile|enrich|report"}
 jobs_sg_run_duration_seconds{kind=...}
-jobs_sg_jobs_total{state="active|closed"}    # 名为 _total 实为 gauge，见下
+jobs_sg_jobs{state="active|closed"}
 jobs_sg_jobs_new                             # 最近一个已物化 ISO 周的新增 SWE 岗位数
 jobs_sg_enrich_backlog                       # is_swe=1 且无 job_tech(source='llm') 的数量
-jobs_sg_unmapped_tech_total                  # 名为 _total 实为 gauge，见下
+jobs_sg_unmapped_tech                        # 未复核的未映射技术词数
 # counter
 jobs_sg_llm_calls_total / jobs_sg_llm_cache_hits_total / jobs_sg_llm_errors_total
 jobs_sg_ingest_errors_total
@@ -147,7 +147,7 @@ jobs_sg_ingest_errors_total
 2. **任何 DB 错误 → 整个抓取 500**，Prometheus 据此把 target 标为 down（`up == 0`，本身就是信号）。曾经 job 计数用 `_ =` 吞掉错误，于是查询失败时输出 `jobs_sg_jobs_total{state="active"} 0`——和「市场一夜清空」无从分辨，建在它上面的告警会照着假数据响。行数不足（`sql.ErrNoRows`）不算错误，走第 1 条。
 3. **标签值必须是闭集**。现存标签只有 `kind` 与 `state`。`jobs_sg_jobs_new` 曾带 `week=` 标签，每周新增一条 series 且永不退休——这是把 Prometheus 撑爆的标准做法；周次由 Prometheus 自己的时间轴回答，不该进标签。
 
-> **遗留命名**：`jobs_sg_jobs_total` 与 `jobs_sg_unmapped_tech_total` 是 gauge 却带 `_total` 后缀（该后缀按约定属于 counter）。改名会破坏依赖它的查询，故单独作为一次变更处理；`jobs_sg_jobs_new` 因为本来就要改（去掉 `week` 标签已经改变了 series 身份）而顺势去掉了后缀。
+> **命名约定**：`_total` 后缀只给 counter。`jobs_sg_jobs`、`jobs_sg_unmapped_tech`、`jobs_sg_jobs_new`、`jobs_sg_enrich_backlog` 都是 gauge（会双向变动），故均无后缀。三者的改名都在部署之前完成，此后再改就要破坏已有查询了。
 
 ### 3.2 告警规则（PrometheusRule，同样需 `release` 标签）
 
