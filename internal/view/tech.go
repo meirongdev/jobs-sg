@@ -130,5 +130,14 @@ const techTmpl = `<!DOCTYPE html>
 </table>
 {{else}}<p class="mut">No enriched postings in {{.Week}}.</p>{{end}}
 
+<h2>4. What else they ask for</h2>
+<p class="note">These are MyCareersFuture's own skill tags — the competencies the employer filled in on the form, over the trailing 90 days ({{.SkillWindow}}) across {{.SkillDenom}} postings. They are <strong>not</strong> the technology ranking above: languages and frameworks appear only in the free-text description, which is why this system reads it separately. "Must-have" is the share of postings listing the tag that marked it essential rather than desirable — a tag that is everywhere but rarely essential is table stakes, one that is usually essential is a filter someone is applying.</p>
+{{if .Skills}}
+<table>
+<tr><th>Skill</th><th>Postings</th><th>Share</th><th>Marked must-have</th></tr>
+{{range .Skills}}<tr><td>{{.Skill}}</td><td>{{.Postings}}</td><td>{{pct .Share}}</td><td>{{pct .KeyShare}}</td></tr>{{end}}
+</table>
+{{else}}<p class="mut">No skill tags recorded in this window.</p>{{end}}
+
 <div class="foot">Numbers computed by SQL from public MyCareersFuture data; data is refreshed daily, so it lags the live market by up to 24h. Methodology: docs/03-data-model.md · <a href="/ops">data freshness</a> · Compliance: aggregate statistics only, no personal data.</div>
 </div></body></html>`

@@ -63,7 +63,8 @@
 4. ~~**A-2c**~~ —— **已完成**（2026-08-07）。周报按 spec §4.5 重排为 7 节、Data Quality 收为页脚一行；各节数字改由 `internal/metric` 计算（周报与实时页共用一份口径），顺带落地 §3.7 的第 ①②④ 三处口径修正；Telegram 改求职者口播（升温 Top 3、入门岗绝对数、各经验档薪资带、数据新鲜度、周报链接）并从 `cmd/report` 下沉到 `internal/report` 以便测试；`weekly_metric` 新增 `tech_share`/`swe_enriched` 审计行；`pct`/`money`/`topn` 收敛到 `internal/view`。
 5. **Phase B `/jobs`**：前置为验证 MCF 回链格式（spec §6）；另注意描述正文不落库，全文搜索需读归档或加列。
 6. ~~零散项~~ —— 除两条外**均已完成**（2026-08-07）：`closed_at` 逐周前移已修（原来是 `CloseExpired` 漏了候选集门控，不是口径问题）· 五份 SGT 常量已收敛到 `internal/sgt` · 两个 gauge 已去掉 `_total` 后缀 · `lensNav` 已改 copy-and-override。
-   **仍开着**：`employment_type` 与整张 `job_skill` 表零消费（可选增量，不是缺陷）· 日增量归档失败已降级 partial，但单条失败仍不重试。
+   ~~`employment_type` 与整张 `job_skill` 表零消费~~ —— **已完成**（2026-08-08）：`/` 新增按 Full Time/Contract/Part Time/Internship 的分布；`/tech` 新增「What else they ask for」表，读 `job_skill` 的 MCF 原生技能标签（业务能力，非技术栈——两者刻意分开渲染，不与 `job_tech` 排名混排），含 must-have 占比。fixture 原来 360 条全部挂同样两个技能标签，无法验证任何区分度，已扩为按模板变化的 22 种标签 + 4 种雇佣类型。
+   **仍开着**：日增量归档失败已降级 partial，但单条失败仍不重试。
 
 ## Phase 3 — 持续演进（按需）
 

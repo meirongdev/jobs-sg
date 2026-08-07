@@ -40,7 +40,16 @@ type TechReport struct {
 	MedianSample     int          // postings behind MedianAll: the comparable-salary subset, smaller than Salary.Disclosed
 	Salary           Transparency // postings stating pay in any unit, vs every SWE posting in the window
 	History          Coverage     // how many of the 5 momentum windows had data
-	Lens             Lens
+
+	// MCF's own skill tags over the same rolling window. A separate ranking
+	// from Ranked on purpose: those are the technologies this system extracts
+	// from descriptions, these are the competencies the employer filled in.
+	// Merging them would put "Problem solving" next to "kubernetes".
+	Skills      []SkillDemand
+	SkillDenom  int
+	SkillWindow string // the rolling window's date range, since it is not Week
+
+	Lens Lens
 }
 
 // sweFrom and sweWhere are the two halves of "a reportable SWE posting in a
@@ -152,6 +161,11 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 	if r.Salary, err = windowTransparency(ctx, db, roll, lens); err != nil {
 		return nil, err
 	}
+
+	if r.Skills, r.SkillDenom, err = SkillDemandFor(ctx, db, roll, lens); err != nil {
+		return nil, err
+	}
+	r.SkillWindow = roll.RangeLabel()
 
 	// Entry-friendliness shares the premium's rolling window: two columns of
 	// one table computed over different periods would be silently incomparable.

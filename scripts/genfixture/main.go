@@ -59,6 +59,68 @@ var rows = []row{
 	{"Junior Frontend Engineer", "25131", "Information Technology", "Fresh/entry level", nil, []string{"onsite"}, "React, TypeScript, HTML, CSS.", "Ryde", "201501111M", "62011", 120},
 }
 
+// skillsByTitle gives each template MCF's own skill tags.
+//
+// These are business competencies, not the tech stack — docs/02 §4.2 is
+// explicit that skills[] is why an LLM is needed at all, since the languages
+// and frameworks live only in the description. Key skills are the employer's
+// must-haves; the rest are nice-to-have.
+//
+// Keyed by title and varied per template rather than drawn from rng: every
+// record used to carry the identical two tags, which makes any ranking over
+// them meaningless, and taking them from the shared rng would shift every later
+// draw and churn unrelated fields across the whole fixture.
+var skillsByTitle = map[string][]mcf.Skill{
+	"Backend Engineer (Go)":     {{Skill: "Problem solving", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}, {Skill: "Agile methodology", IsKeySkill: false}},
+	"Senior Backend Engineer":   {{Skill: "System design", IsKeySkill: true}, {Skill: "Problem solving", IsKeySkill: true}, {Skill: "Mentoring", IsKeySkill: false}},
+	"Frontend Engineer":         {{Skill: "Attention to detail", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}, {Skill: "UI/UX collaboration", IsKeySkill: false}},
+	"Senior Frontend Developer": {{Skill: "System design", IsKeySkill: true}, {Skill: "Attention to detail", IsKeySkill: true}, {Skill: "Mentoring", IsKeySkill: false}},
+	"Fullstack Engineer":        {{Skill: "Problem solving", IsKeySkill: true}, {Skill: "Adaptability", IsKeySkill: false}, {Skill: "Communication", IsKeySkill: false}},
+	"Data Engineer":             {{Skill: "Data modelling", IsKeySkill: true}, {Skill: "Problem solving", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}},
+	"Data Scientist":            {{Skill: "Statistical analysis", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}, {Skill: "Stakeholder management", IsKeySkill: false}},
+	"Machine Learning Engineer": {{Skill: "Statistical analysis", IsKeySkill: true}, {Skill: "Problem solving", IsKeySkill: true}, {Skill: "Research", IsKeySkill: false}},
+	"Mobile Developer (iOS)":    {{Skill: "Attention to detail", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}},
+	"Android Developer":         {{Skill: "Attention to detail", IsKeySkill: true}, {Skill: "Adaptability", IsKeySkill: false}},
+	"Site Reliability Engineer": {{Skill: "Incident response", IsKeySkill: true}, {Skill: "Problem solving", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}},
+	"Security Engineer":         {{Skill: "Risk assessment", IsKeySkill: true}, {Skill: "Attention to detail", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}},
+	"Platform Engineer":         {{Skill: "System design", IsKeySkill: true}, {Skill: "Automation", IsKeySkill: true}, {Skill: "Collaboration", IsKeySkill: false}},
+	"DevOps Engineer":           {{Skill: "Automation", IsKeySkill: true}, {Skill: "Incident response", IsKeySkill: true}, {Skill: "Collaboration", IsKeySkill: false}},
+	"QA Engineer":               {{Skill: "Attention to detail", IsKeySkill: true}, {Skill: "Test planning", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}},
+	"Cloud Engineer":            {{Skill: "Automation", IsKeySkill: true}, {Skill: "Cost optimisation", IsKeySkill: false}, {Skill: "Collaboration", IsKeySkill: false}},
+	"Software Engineer Intern":  {{Skill: "Willingness to learn", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}},
+	"Junior Software Developer": {{Skill: "Willingness to learn", IsKeySkill: true}, {Skill: "Problem solving", IsKeySkill: false}},
+	"Engineering Manager":       {{Skill: "People management", IsKeySkill: true}, {Skill: "Stakeholder management", IsKeySkill: true}, {Skill: "Mentoring", IsKeySkill: true}},
+	"Receptionist":              {{Skill: "Communication", IsKeySkill: true}, {Skill: "Customer service", IsKeySkill: true}},
+	"Accountant":                {{Skill: "Attention to detail", IsKeySkill: true}, {Skill: "Financial reporting", IsKeySkill: true}},
+	"Customer Service Officer":  {{Skill: "Customer service", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: true}},
+	"Software Engineer":         {{Skill: "Problem solving", IsKeySkill: true}, {Skill: "Communication", IsKeySkill: false}},
+	"Junior Frontend Engineer":  {{Skill: "Willingness to learn", IsKeySkill: true}, {Skill: "Attention to detail", IsKeySkill: false}},
+}
+
+// employmentByTitle overrides the Full Time default for the few templates that
+// are not, so employment_type has more than one value to distribute over.
+var employmentByTitle = map[string]string{
+	"Senior Frontend Developer": "Contract",
+	"DevOps Engineer":           "Contract",
+	"Software Engineer Intern":  "Internship",
+	"Receptionist":              "Part Time",
+	"Customer Service Officer":  "Part Time",
+}
+
+func skillsOf(title string) []mcf.Skill {
+	if s, ok := skillsByTitle[title]; ok {
+		return s
+	}
+	return []mcf.Skill{{Skill: "Communication", IsKeySkill: false}}
+}
+
+func employmentOf(title string) string {
+	if t, ok := employmentByTitle[title]; ok {
+		return t
+	}
+	return "Full Time"
+}
+
 func main() {
 	rng := rand.New(rand.NewSource(20260803))
 	// 2026-06-29 是 ISO 2026-W27 的周一；6 周 × 60 行铺到 W32（周一 2026-08-03）。
@@ -98,11 +160,11 @@ func main() {
 			PositionLevels:           []mcf.PositionLevel{{Position: r.posLevel}},
 			MinimumYearsExperience:   r.minYr,
 			Salary:                   &mcf.Salary{Minimum: 3000 + float64(rng.Intn(5000)), Maximum: 6000 + float64(rng.Intn(6000)), Type: mcf.SalaryType{ID: 4, SalaryType: "Monthly"}},
-			EmploymentTypes:          []mcf.EmploymentType{{ID: 8, EmploymentType: "Full Time"}},
+			EmploymentTypes:          []mcf.EmploymentType{{ID: 8, EmploymentType: employmentOf(r.title)}},
 			Categories:               []mcf.Category{{Category: r.category, SubCategory: "Software"}},
 			Schemes:                  []mcf.Scheme{},
 			FlexibleWorkArrangements: flexOf(r.flex),
-			Skills:                   []mcf.Skill{{Skill: "Communication", IsKeySkill: false}, {Skill: "Problem solving", IsKeySkill: true}},
+			Skills:                   skillsOf(r.title),
 			PostedCompany:            &mcf.PostedCompany{UEN: r.uen, Name: r.company, SSICCode: r.ssic, EmployeeCount: intP(r.emp)},
 			Address:                  &mcf.Address{PostalCode: "018956", Districts: []mcf.District{{ID: 7, Location: "Central", Region: "Central"}}, Lat: fp(1.2902), Lng: fp(103.8519), IsOverseas: false},
 			Status:                   &mcf.JobStatus{JobStatus: "Active"},

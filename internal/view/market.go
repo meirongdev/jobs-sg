@@ -69,6 +69,11 @@ const marketTmpl = `<!DOCTYPE html>
 {{bar .WorkModes 5}}
 <p class="note">Postings that say nothing about arrangement are counted as Onsite, which is what MCF's field implies but not what every employer means.</p>
 {{end}}
+{{if .Employment}}
+<h3>By employment type</h3>
+{{bar .Employment 5}}
+<p class="note">Contract and part-time work is a different search from permanent — worth knowing how much of the board is which before reading the pay figures, which do not separate them.</p>
+{{end}}
 
 <h2>3. Getting in</h2>
 <p class="note">Entry-level means at most 2 years required, or an Intern/Junior title with no stated requirement. <strong>{{commas .EntryJobs}}</strong> of {{commas .NewJobs}} postings in {{.Week}} qualified, and <strong>{{commas .ActiveEntry}}</strong> are on the board right now. Counts, not shares: "{{commas .EntryJobs}} postings this week" is something you can act on.</p>

@@ -31,6 +31,7 @@ type MarketReport struct {
 	Roles       []KV // reported week's role_family distribution, count desc
 	Seniorities []KV // reported week's seniority distribution, career order
 	WorkModes   []KV // reported week's work-mode distribution, count desc
+	Employment  []KV // reported week's full-time/contract/part-time split
 	EntryByRole []KV // entry-level new postings by role, count desc
 
 	Lens Lens
@@ -98,6 +99,11 @@ func MarketReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens
 	}
 	r.Seniorities = inOrder(r.Seniorities, classify.SeniorityLevels())
 	if r.WorkModes, err = weekGroup(ctx, db, week, lens, "j.work_mode", ""); err != nil {
+		return nil, err
+	}
+	// Contract and part-time are a different job search from permanent work,
+	// and the field has been collected since day one without ever being read.
+	if r.Employment, err = weekGroup(ctx, db, week, lens, "j.employment_type", ""); err != nil {
 		return nil, err
 	}
 	// Entry-level demand gets its own breakdown rather than only a share:
