@@ -90,15 +90,37 @@ func run(dataDir string, apply bool, batchSize int) error {
 	// Last archived copy of each posting wins: WalkArchives visits files in
 	// chronological order, so a later sighting overwrites an earlier one.
 	latest := make(map[string]store.ClassificationUpdate, len(current))
-	var records, unknownUUID int
+	// Two very different reasons a uuid can be in the archive but not in
+	// jobs.db, and lumping them together makes the number useless:
+	//
+	//   - not a candidate — ingest archives the whole board but only stores
+	//     candidates (internal/ingest: `if r.IsCandidate`), so most of the
+	//     Singapore market is archived and correctly never stored. Expected.
+	//   - a candidate that is missing — the pipeline should have stored it and
+	//     did not. That is a real gap, e.g. an upsert dropped by a lock
+	//     collision during a partial run.
+	//
+	// Counted as distinct uuids, not records: every reconcile re-archives the
+	// whole board, so the same posting appears in the archive dozens of times
+	// and a record count reads an order of magnitude too high.
+	missingCandidates := map[string]struct{}{}
+	notCandidates := map[string]struct{}{}
+	var records int
 	err = mcf.WalkArchives(dataDir, func(_ string, j mcf.Job) error {
 		records++
 		if j.UUID == "" {
 			return nil
 		}
 		if _, ok := current[j.UUID]; !ok {
-			unknownUUID++
-			return nil // not in jobs.db: counted, never inserted
+			// Never inserted here: an INSERT would have to invent
+			// first_seen_at/last_seen_at. Classified only to tell the two
+			// reasons apart.
+			if classifier.Classify(j).IsCandidate {
+				missingCandidates[j.UUID] = struct{}{}
+			} else {
+				notCandidates[j.UUID] = struct{}{}
+			}
+			return nil
 		}
 		res := classifier.Classify(j)
 		u := store.ClassificationUpdate{
@@ -149,7 +171,7 @@ func run(dataDir string, apply bool, batchSize int) error {
 	// thing and a diff of two reports is meaningful.
 	sort.Slice(work, func(i, j int) bool { return work[i].UUID < work[j].UUID })
 
-	report(os.Stdout, records, len(latest), unknownUUID, len(work), sweGained, sweLost, mode, family, sen)
+	report(os.Stdout, records, len(latest), len(notCandidates), len(missingCandidates), len(work), sweGained, sweLost, mode, family, sen)
 
 	if !apply {
 		fmt.Printf("\nDRY RUN — nothing written. Re-run with --apply to commit %d row(s).\n", len(work))
@@ -173,14 +195,21 @@ func run(dataDir string, apply bool, batchSize int) error {
 	return nil
 }
 
-func report(w *os.File, records, postings, unknown, changed, sweGained, sweLost int, mode, family, sen transitions) {
+func report(w *os.File, records, postings, notCandidates, missingCandidates, changed, sweGained, sweLost int, mode, family, sen transitions) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "archive records read\t", records)
+	fmt.Fprintln(tw, "archive records read\t", records, "\t(the same posting appears once per sighting)")
 	fmt.Fprintln(tw, "distinct postings in jobs.db\t", postings)
-	fmt.Fprintln(tw, "archived but not in jobs.db\t", unknown, "\t(left alone — see the command doc)")
+	fmt.Fprintln(tw, "archived, not a candidate\t", notCandidates, "\t(expected — ingest archives the whole board, stores only candidates)")
+	fmt.Fprintln(tw, "candidates MISSING from jobs.db\t", missingCandidates, "\t(a real gap — should have been stored and was not)")
 	fmt.Fprintln(tw, "postings whose verdict changes\t", changed)
 	tw.Flush()
 
+	if missingCandidates > 0 {
+		fmt.Printf("\n⚠️  %d candidate(s) are in the archive but not in jobs.db. This command\n"+
+			"    does not insert them — reconstructing first_seen_at/last_seen_at from an\n"+
+			"    archive would be inventing lifecycle history. Investigate before deciding.\n",
+			missingCandidates)
+	}
 	if sweGained > 0 || sweLost > 0 {
 		fmt.Printf("\n⚠️  is_swe moves: +%d / -%d — this changes the population every\n"+
 			"    metric is computed over, not just one column.\n", sweGained, sweLost)
