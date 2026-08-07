@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +29,22 @@ type Telegram struct {
 // Enabled reports whether a push will actually be attempted.
 func (t *Telegram) Enabled() bool {
 	return t.Token != "" && t.ChatID != ""
+}
+
+// withoutURL strips the request URL out of a transport error.
+//
+// The bot token is part of the Telegram API path (/bot<token>/sendMessage), and
+// net/http wraps every transport failure in a *url.Error whose message prints
+// the whole URL. cmd/report logs this error by design — a failed push must not
+// fail the weekly run — so returning one unmodified writes the token into the
+// pod's stdout, which docs/04 §3.3 ships straight to Loki. The unwrapped cause
+// ("dial tcp ...: connection refused") says everything an operator needs.
+func withoutURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		return ue.Err
+	}
+	return err
 }
 
 // SendSummary posts the report summary markdown to the configured chat/topic.
@@ -59,10 +77,10 @@ func (t *Telegram) SendSummary(ctx context.Context, text string) error {
 	if base == "" {
 		base = "https://api.telegram.org/bot" + t.Token
 	}
-	url := base + "/sendMessage"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	endpoint := base + "/sendMessage"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("telegram sendMessage: %w", withoutURL(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	client := t.Client
@@ -71,7 +89,7 @@ func (t *Telegram) SendSummary(ctx context.Context, text string) error {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("telegram sendMessage: %w", withoutURL(err))
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
