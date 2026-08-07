@@ -263,3 +263,37 @@ func findCell(r *PayReport, seniority, role string) (PayCell, bool) {
 	}
 	return PayCell{}, false
 }
+
+func TestLadderBandsAccountForEveryPosting(t *testing.T) {
+	// A posting matching no band vanishes from the ladder silently: the rungs
+	// still render, just short. Negative min_years_exp is representable
+	// end-to-end (plain INTEGER, no CHECK, unvalidated pass-through from the
+	// MCF JSON), so seed one and require the rungs to still sum to the whole.
+	ctx := context.Background()
+	db := seedFixture(t)
+	day := LastCompletedWeek(fixtureNow).Start.In(SGT).Format("2006-01-02")
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO job(uuid, job_post_id, title, description_sha256, source, is_swe,
+		  min_years_exp, posting_date, first_seen_at, last_seen_at, raw_path)
+		VALUES('neg-exp','MCF-neg-exp','Backend Engineer','x','mcf',1,-3,?,?,?,'raw/x#0')`,
+		day, day, day); err != nil {
+		t.Fatal(err)
+	}
+	r, err := PayReportFor(ctx, db, fixtureNow, Lens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roll := Rolling(fixtureNow, RollingDays)
+	var total int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) `+swePosted, roll.Args()...).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	var summed int
+	for _, b := range r.Ladder {
+		summed += b.Postings
+	}
+	if summed != total {
+		t.Errorf("rungs account for %d postings, want all %d — a band gap swallows postings silently", summed, total)
+	}
+}

@@ -56,11 +56,19 @@ type PayReport struct {
 // Deliberately finer than the lens bands (spec §2.3 uses 0-2 as one band):
 // the ladder answers "what does the first year buy", so 0 and 1-2 must stay
 // apart, and "unstated" is never folded into "no requirement" (spec §3.7-1).
+//
+// "<= 0", not "= 0": min_years_exp is an unvalidated pass-through of the
+// MCF field (no CHECK in the schema), so a negative value is representable.
+// An exact "= 0" leaves it matching no band at all, and a posting that
+// matches no band disappears from every rung's count without a trace — the
+// silent-gap failure this package exists to prevent. A negative requirement
+// is a data error whose only sensible reading is "no experience required",
+// so it belongs on this rung.
 var ladderBands = []struct {
 	Label     string
 	Predicate string
 }{
-	{"0", `j.min_years_exp = 0`},
+	{"0", `j.min_years_exp <= 0`},
 	{"1-2", `j.min_years_exp BETWEEN 1 AND 2`},
 	{"3-5", `j.min_years_exp BETWEEN 3 AND 5`},
 	{"6+", `j.min_years_exp >= 6`},
