@@ -165,6 +165,9 @@ while true:
   → 重新见到：UPDATE job SET last_seen_at=now, miss_count=0, closed_at=NULL WHERE uuid IN S
        -- closed_at=NULL 即 reopen：重贴/复活不算新增（归属 original_posting_date，见 03 §6）
   → 关闭判定（v2.1：仅当本轮 status='success' 才执行，partial 扫描严禁批量关闭）：
+       -- 实现为单次 store.MissAndClose(seen, today)：两个分支共用同一个候选集，
+       -- 且以精确的 seen 集合为键而非 last_seen_at 时间戳（NowUTC 只到秒，
+       -- 同一秒内的两轮分辨不出来）。
        候选 = closed_at IS NULL AND last_seen_at < 本轮 started_at
        ├─ expiry_date < today  →  closed_at=now, miss_count=0     -- 到期下架，直接关
        └─ 未到期消失            →  miss_count += 1

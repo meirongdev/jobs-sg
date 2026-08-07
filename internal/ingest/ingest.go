@@ -301,19 +301,12 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 			// expiry_date arrives from MCF as a bare Singapore-local date
 			// ("2026-09-02"), so "today" has to be the SGT one. Taking the UTC
 			// date instead made every reconcile compare against the previous
-			// SGT day — it runs at 02:15 SGT, which is still yesterday in UTC —
-			// so a posting that expired yesterday survived expiry closure and
-			// waited on the slower two-week miss_count path instead.
+			// SGT day — it runs at 02:15 SGT, which is still yesterday in UTC.
 			today := now().In(sgt).Format("2006-01-02")
-			expired, cerr := db.CloseExpired(ctx, today)
+			expired, missed, cerr := db.MissAndClose(ctx, seen, today)
 			if cerr != nil {
 				res.Errors++
-				slog.Warn("close expired failed", "err", cerr)
-			}
-			missed, merr := db.MissAndClose(ctx, seen)
-			if merr != nil {
-				res.Errors++
-				slog.Warn("miss-and-close failed", "err", merr)
+				slog.Warn("close pass failed", "err", cerr)
 			}
 			res.Closed = expired + missed
 		}

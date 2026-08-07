@@ -332,12 +332,14 @@ func TestReconcileKeepsRawPathItDidNotRewrite(t *testing.T) {
 	}
 }
 
-// MCF reports expiry_date as a bare Singapore-local date, and the reconcile
-// runs at 02:15 SGT — 18:15 UTC the day before. Comparing against the UTC date
-// therefore asked "did this expire before yesterday?", so a posting that
-// expired yesterday survived the expiry rule and fell through to the slower
-// two-week miss_count path.
-func TestReconcileClosesExpiredAgainstTheSGTDate(t *testing.T) {
+// Expiry closes a posting that VANISHED, immediately, instead of making it
+// wait out the two-miss rule. docs/02 §4.1 gates both close branches on the
+// same candidate set — postings this round did not see.
+//
+// It also pins the SGT date: MCF reports expiry_date as a bare Singapore-local
+// date and the reconcile runs at 02:15 SGT, 18:15 UTC the day before, so
+// comparing against the UTC date asked "did this expire before yesterday?".
+func TestReconcileClosesExpiredPostingThatVanished(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	// 18:15 UTC on the 6th == 02:15 SGT on the 7th, the real nightly slot
@@ -347,12 +349,14 @@ func TestReconcileClosesExpiredAgainstTheSGTDate(t *testing.T) {
 	// expired at the end of the 6th SGT: dead by the time this run starts
 	job := sweJob("a", "2026-07-01")
 	job.Metadata.ExpiryDate = "2026-08-06"
-	rt := &pageRT{pages: [][]mcf.Job{{job}}, total: 1}
+	keep := sweJob("b", "2026-07-01")
+	rt := &pageRT{pages: [][]mcf.Job{{job, keep}}, total: 2}
 	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: now, Delay: 0}); err != nil {
 		t.Fatal(err)
 	}
 
-	rt2 := &pageRT{pages: [][]mcf.Job{{job}}, total: 1}
+	// the reconcile no longer sees `a` — it is gone AND past expiry
+	rt2 := &pageRT{pages: [][]mcf.Job{{keep}}, total: 1}
 	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: now, Delay: 0, Reconcile: true})
 	if err != nil {
 		t.Fatal(err)
@@ -370,7 +374,57 @@ func TestReconcileClosesExpiredAgainstTheSGTDate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !closedAt.Valid {
-		t.Error("an expired posting should carry closed_at after a successful reconcile")
+		t.Error("a vanished, expired posting should close on the first reconcile, not after two misses")
+	}
+}
+
+// A posting MCF is still listing does not close, however stale its expiry_date.
+//
+// Without this gate the scan reopened it and the expiry rule re-closed it every
+// week, so closed_at walked forward and spec §3.5's listing length grew by
+// seven days a week — while the API was plainly still showing the posting. What
+// a reader can apply to is what counts.
+func TestReconcileKeepsAnExpiredPostingThatIsStillListed(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	runAt := time.Date(2026, 8, 6, 18, 15, 0, 0, time.UTC)
+	now := func() time.Time { return runAt }
+
+	job := sweJob("a", "2026-07-01")
+	job.Metadata.ExpiryDate = "2026-08-06" // already past
+	rt := &pageRT{pages: [][]mcf.Job{{job}}, total: 1}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: now, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+
+	readClosed := func() sql.NullString {
+		t.Helper()
+		db, err := store.Open(dir+"/jobs.db", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var c sql.NullString
+		if err := db.QueryRowContext(ctx, "SELECT closed_at FROM job WHERE uuid='a'").Scan(&c); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	// Three reconciles, each still listing it. Under the old behaviour closed_at
+	// would be set every round and move forward each time.
+	for i := range 3 {
+		rt := &pageRT{pages: [][]mcf.Job{{job}}, total: 1}
+		res, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: now, Delay: 0, Reconcile: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Closed != 0 {
+			t.Errorf("round %d closed %d postings; a listed posting is live whatever its expiry_date", i+1, res.Closed)
+		}
+		if c := readClosed(); c.Valid {
+			t.Fatalf("round %d set closed_at=%s on a posting the scan still saw", i+1, c.String)
+		}
 	}
 }
 
