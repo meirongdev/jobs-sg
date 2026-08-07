@@ -33,7 +33,7 @@ type Result struct {
 	IsSWE            bool
 	Seniority        string
 	WorkMode         string
-	WorkModeInferred bool // true when work_mode is an inferred Onsite
+	WorkModeInferred bool // true when the posting stated no location, i.e. work_mode is Unknown
 	CompanyType      string
 }
 
@@ -117,7 +117,7 @@ func New(ssoc map[string]string) *Classifier {
 
 // Classify derives the full Result for one job.
 func (c *Classifier) Classify(j mcf.Job) Result {
-	res := Result{WorkMode: "Onsite", WorkModeInferred: true} // default: inferred Onsite
+	res := Result{WorkMode: "Unknown", WorkModeInferred: true} // no location signal until one is found
 	res.IsCandidate, res.HitLayer = isCandidate(j)
 	res.RoleFamily = c.roleFamily(j.Title, j.SSOCCode)
 	res.IsSWE = res.IsCandidate && sweFamilies[res.RoleFamily]
@@ -241,19 +241,50 @@ func seniorityFromYears(years int) string {
 	return ""
 }
 
-// WorkMode derives from flexibleWorkArrangements; empty => inferred Onsite.
+// WorkMode derives the work *location* from flexibleWorkArrangements. It
+// returns Unknown when the posting carries no location signal, which is the
+// common case — see below.
+//
+// Measured against the live API on 2026-08-08 (500 postings, all sectors):
+// only 37 carry the field at all, and its vocabulary is overwhelmingly about
+// *when* you work, not *where*:
+//
+//	19  Flexi-Hours                   schedule
+//	13  Employees Choice of Days Off  schedule
+//	 4  Compressed Work Schedule      schedule
+//	 3  Telecommuting                 LOCATION -> Remote
+//	 2  Staggered Time                schedule
+//
+// The previous implementation matched "remote"/"hybrid"/"onsite" — none of
+// which MCF ever emits — and fell through to a hardcoded Onsite for everything
+// else. work_mode therefore read Onsite for ~100% of postings, and that
+// fabricated distribution is rendered on the front page (internal/view/market)
+// and in the weekly report (internal/report/render). It is the same defect as
+// filling a gauge with 0 because the value is missing: docs/04 §3.1 says no
+// value means emit nothing, precisely so "we don't know" stays distinguishable
+// from "we measured zero".
+//
+// So a scheduling arrangement carries no location signal and must not be read
+// as one. With no location arrangement present the honest answer is Unknown,
+// and the distribution then shows the reader how little is actually known.
+//
+// Flexi-Place maps to Hybrid rather than Remote deliberately: Singapore's FWA
+// vocabulary uses it for flexibility in where one works, which is weaker than a
+// claim of fully remote. The remote/hybrid/onsite spellings are kept so a
+// vocabulary change upstream lands on a real branch instead of silently
+// draining into Unknown.
 func WorkMode(arrangements []string) (mode string, inferred bool) {
 	for _, a := range arrangements {
 		switch strings.ToLower(strings.TrimSpace(a)) {
-		case "remote", "fully remote":
+		case "telecommuting", "work-from-home", "work from home", "remote", "fully remote":
 			return "Remote", false
-		case "hybrid", "hybrid work arrangement":
+		case "flexi-place", "flexi place", "hybrid", "hybrid work arrangement":
 			return "Hybrid", false
-		case "onsite", "on-site":
+		case "onsite", "on-site", "on site":
 			return "Onsite", false
 		}
 	}
-	return "Onsite", true
+	return "Unknown", true
 }
 
 // CompanyType derives MNC/Local Tech/Bank&FinTech/Startup/Government/Consulting
