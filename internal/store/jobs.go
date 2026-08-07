@@ -11,16 +11,13 @@ import (
 	"github.com/meirongdev/jobs-sg/internal/mcf"
 )
 
-// ActiveJob is a minimal projection used by reconcile.
-type ActiveJob struct {
-	UUID       string
-	ExpiryDate sql.NullString
-	ClosedAt   sql.NullString
-}
-
 // UpsertJob inserts or updates one candidate job (uuid is the exact primary
 // key; refreshes UPDATE, never INSERT — docs/03 §6, BDD dedup scenarios).
 // Returns new=true when a row was inserted.
+//
+// This is the only path by which a posting is recorded as seen: both the daily
+// incremental and the weekly reconcile go through it, so the lifecycle columns
+// it touches (last_seen_at, miss_count, closed_at) are maintained in one place.
 func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawPath string) (bool, error) {
 	now := NowUTC()
 	hash := hashHex(j.Description)
@@ -105,12 +102,20 @@ func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawP
 		return false, err
 	}
 
+	// closed_at=NULL is the reopen half of the lifecycle (docs/02 §4.1, BDD
+	// "reopen 不清除新增归属"): the API only lists live postings, so seeing one
+	// at all proves it is back on the board. Without this the two-week
+	// miss_count guard has no self-healing side — a posting the reconcile race
+	// mistakenly closed stays closed forever and the active count drifts down
+	// for good. Expiry is still authoritative: CloseExpired runs after the scan
+	// in the same round, so a posting listed past its expiry_date settles back
+	// on closed rather than flapping.
 	_, err = tx.ExecContext(ctx, `
 		UPDATE job SET job_post_id=?, title=?, description_sha256=?, company_uen=?,
 		  ssoc_code=?, occupation_id=?, category=?, position_level=?, employment_type=?,
 		  min_years_exp=?, salary_min=?, salary_max=?, salary_type=?, salary_hidden=?, vacancies=?,
 		  role_family=?, seniority=?, work_mode=?, is_swe=?, posting_date=?,
-		  expiry_date=?, repost_count=?, status=?, last_seen_at=?, miss_count=0,
+		  expiry_date=?, repost_count=?, status=?, last_seen_at=?, miss_count=0, closed_at=NULL,
 		  view_count=?, application_count=?, district=?, postal_code=?, lat=?, lng=?, is_overseas=?,
 		  raw_path=? WHERE uuid=?`,
 		j.Metadata.JobPostID, j.Title, hash, nullStr(uen),
@@ -136,35 +141,6 @@ func (d *DB) QueryWatermark(ctx context.Context) (sql.NullString, error) {
 	var wm sql.NullString
 	err := d.QueryRowContext(ctx, `SELECT max(posting_date) FROM job`).Scan(&wm)
 	return wm, err
-}
-
-// ActiveCandidates lists candidate jobs currently considered open
-// (closed_at IS NULL), for reconcile.
-func (d *DB) ActiveCandidates(ctx context.Context) ([]ActiveJob, error) {
-	rows, err := d.QueryContext(ctx, `SELECT uuid, expiry_date, closed_at FROM job WHERE closed_at IS NULL`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ActiveJob
-	for rows.Next() {
-		var a ActiveJob
-		if err := rows.Scan(&a.UUID, &a.ExpiryDate, &a.ClosedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
-}
-
-// MarkSeen refreshes a job seen during reconcile: last_seen_at, counts,
-// miss_count=0, and clears closed_at (reopen — never counts as new).
-func (d *DB) MarkSeen(ctx context.Context, uuid string, view, app int) error {
-	_, err := d.ExecContext(ctx, `
-		UPDATE job SET last_seen_at=?, miss_count=0, closed_at=NULL,
-		  view_count=?, application_count=? WHERE uuid=?`,
-		NowUTC(), view, app, uuid)
-	return err
 }
 
 // CloseExpired closes (closed_at=now) jobs whose expiry_date < today —
@@ -221,7 +197,7 @@ func (d *DB) MissAndClose(ctx context.Context, seen map[string]bool) (int, error
 		return 0, err
 	}
 	// only rows just missed can close here, so a job seen this round (miss_count
-	// reset to 0 by UpsertJob/MarkSeen) can never be caught by a stale counter
+	// reset to 0 by UpsertJob) can never be caught by a stale counter
 	res, err := tx.ExecContext(ctx,
 		`UPDATE job SET closed_at=? WHERE miss_count >= 2 AND `+unseen, NowUTC())
 	if err != nil {

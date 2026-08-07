@@ -82,25 +82,26 @@ func TestReconcileLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	cl := classify.New(nil)
-	mk := func(uuid, expiry string) {
+	// see() is how a scan records a posting it found — the same call ingest
+	// makes, so what this test exercises is the production path rather than a
+	// store helper written only for it. Returns whether a row was inserted.
+	see := func(uuid, expiry string, view, app int) bool {
 		j := mcf.Job{UUID: uuid, Title: "Software Engineer", Description: "d",
-			Metadata: mcf.Metadata{JobPostID: "MCF-" + uuid, NewPostingDate: "2026-08-01T00:00:00Z", ExpiryDate: expiry, TotalNumberOfView: 5, TotalNumberJobApplication: 1},
+			Metadata: mcf.Metadata{JobPostID: "MCF-" + uuid, NewPostingDate: "2026-08-01T00:00:00Z", ExpiryDate: expiry, TotalNumberOfView: view, TotalNumberJobApplication: app},
 			SSOCCode: "25121", Categories: []mcf.Category{{Category: "Information Technology"}}}
-		if _, err := db.UpsertJob(ctx, j, cl.Classify(j), "raw/2026-08-03/000.jsonl.gz#0"); err != nil {
+		isNew, err := db.UpsertJob(ctx, j, cl.Classify(j), "raw/2026-08-03/000.jsonl.gz#0")
+		if err != nil {
 			t.Fatal(err)
 		}
+		return isNew
 	}
-	mk("a", "2026-12-01T00:00:00Z") // stays open
-	mk("b", "2026-09-01T00:00:00Z") // expired -> close by expiry
-	mk("c", "2026-12-01T00:00:00Z") // disappears for 2 rounds
+	see("a", "2026-12-01T00:00:00Z", 5, 1) // stays open
+	see("b", "2026-09-01T00:00:00Z", 5, 1) // expired -> close by expiry
+	see("c", "2026-12-01T00:00:00Z", 5, 1) // disappears for 2 rounds
 
 	// Round 1: seen = {a, b}
-	if err := db.MarkSeen(ctx, "a", 6, 2); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.MarkSeen(ctx, "b", 7, 3); err != nil {
-		t.Fatal(err)
-	}
+	see("a", "2026-12-01T00:00:00Z", 6, 2)
+	see("b", "2026-09-01T00:00:00Z", 7, 3)
 	today := "2026-10-01"
 	closedExpired, err := db.CloseExpired(ctx, today)
 	if err != nil {
@@ -157,7 +158,7 @@ func TestReconcileLifecycle(t *testing.T) {
 		t.Errorf("seen job = miss_count %d closed %v, want 5 and open", missA, closedA.Valid)
 	}
 
-	// a's counts refreshed by MarkSeen
+	// a's counts refreshed by being seen again
 	var view int
 	if err := db.QueryRowContext(ctx, "SELECT view_count FROM job WHERE uuid='a'").Scan(&view); err != nil {
 		t.Fatal(err)
@@ -166,9 +167,11 @@ func TestReconcileLifecycle(t *testing.T) {
 		t.Errorf("a view_count = %d, want 6", view)
 	}
 
-	// reopen: a previously-closed job seen again -> closed_at NULL, miss reset
-	if err := db.MarkSeen(ctx, "c", 9, 4); err != nil {
-		t.Fatal(err)
+	// reopen: a previously-closed job seen again -> closed_at NULL, miss reset,
+	// and no new row (BDD "reopen 不清除新增归属": a revived posting must not
+	// register as this week's new demand)
+	if isNew := see("c", "2026-12-01T00:00:00Z", 9, 4); isNew {
+		t.Errorf("reopening c inserted a new row; want an update")
 	}
 	if err := db.QueryRowContext(ctx, "SELECT closed_at, miss_count FROM job WHERE uuid='c'").Scan(&closedAt, &missC); err != nil {
 		t.Fatal(err)

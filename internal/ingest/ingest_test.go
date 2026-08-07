@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -238,6 +239,58 @@ func TestReconcileClosesAfterTwoMisses(t *testing.T) {
 	}
 	if closed != 1 {
 		t.Errorf("closed rows for b = %d, want 1", closed)
+	}
+}
+
+// A posting that comes back after being closed must reopen. The store-level
+// lifecycle test cannot stand in for this one: reopen only matters if the path
+// ingest actually walks performs it, and for a while it did not — the only code
+// that cleared closed_at was a store helper no caller reached.
+func TestReconcileReopensReturningJob(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+	both := func() *pageRT {
+		return &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01T00:00:00Z"), sweJob("b", "2026-08-01T00:00:00Z")}}, total: 2}
+	}
+	onlyA := func() *pageRT {
+		return &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01T00:00:00Z")}}, total: 1}
+	}
+	run := func(rt *pageRT, reconcile bool) Result {
+		t.Helper()
+		res, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: func() time.Time { return now }, Delay: 0, Reconcile: reconcile})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+
+	run(both(), false) // baseline: a and b open
+	run(onlyA(), true) // b missed once
+	if res := run(onlyA(), true); res.Closed != 1 {
+		t.Fatalf("closed = %d, want 1 (b after two misses)", res.Closed)
+	}
+
+	// b is back on the board
+	res := run(both(), true)
+	if res.New != 0 {
+		t.Errorf("new = %d, want 0 (a revived posting is not new demand)", res.New)
+	}
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var closedAt sql.NullString
+	var miss int
+	if err := db.QueryRowContext(ctx, "SELECT closed_at, miss_count FROM job WHERE uuid='b'").Scan(&closedAt, &miss); err != nil {
+		t.Fatal(err)
+	}
+	if closedAt.Valid {
+		t.Errorf("b closed_at = %q, want NULL (reopened)", closedAt.String)
+	}
+	if miss != 0 {
+		t.Errorf("b miss_count = %d, want 0 after reopen", miss)
 	}
 }
 
