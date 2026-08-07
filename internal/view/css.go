@@ -29,4 +29,5 @@ const SuppressedCSS = `
 .note{color:var(--mut);font-size:13px;margin:6px 0 0}
 .wide{max-width:1160px}.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .scroll table{min-width:840px}table.detail td,table.detail th{padding:5px 8px;font-size:14px}
+table.detail td:first-child,table.detail th:first-child{position:sticky;left:0;background:var(--bg)}
 `
