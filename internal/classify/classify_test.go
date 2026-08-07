@@ -99,18 +99,42 @@ func TestSeniorityVoteNoTitle(t *testing.T) {
 	}
 }
 
-func TestWorkModeRemoteAndInferred(t *testing.T) {
-	cl := New(nil)
-	j := jobWithSSOC("25121")
-	j.FlexibleWorkArrangements = []mcf.FlexibleWorkArrangement{{FlexibleWorkArrangement: "remote"}}
-	res := cl.Classify(j)
-	if res.WorkMode != "Remote" || res.WorkModeInferred {
-		t.Errorf("work_mode = %s inferred=%v, want Remote/false", res.WorkMode, res.WorkModeInferred)
+// The arrangement strings here are the ones MCF actually emits, sampled from
+// 500 live postings on 2026-08-08 — not the remote/hybrid/onsite spellings the
+// first implementation guessed at. The scheduling cases are the point of the
+// test: they must NOT be read as a location, or work_mode goes back to claiming
+// ~100% Onsite off a field that never said so.
+func TestWorkModeLocationVsSchedule(t *testing.T) {
+	cases := []struct {
+		name         string
+		arrangements []string
+		wantMode     string
+		wantInferred bool
+	}{
+		{"telecommuting is the one real location signal", []string{"Telecommuting"}, "Remote", false},
+		{"flexi-place is weaker than fully remote", []string{"Flexi-Place"}, "Hybrid", false},
+		{"flexi-hours says nothing about place", []string{"Flexi-Hours"}, "Unknown", true},
+		{"choice of days off says nothing about place", []string{"Employees Choice of Days Off"}, "Unknown", true},
+		{"compressed schedule says nothing about place", []string{"Compressed Work Schedule"}, "Unknown", true},
+		{"staggered time says nothing about place", []string{"Staggered Time"}, "Unknown", true},
+		{"a location signal wins over a schedule one", []string{"Flexi-Hours", "Telecommuting"}, "Remote", false},
+		{"no arrangement at all is the 93% case", nil, "Unknown", true},
+		{"legacy spellings still land on a branch", []string{"hybrid"}, "Hybrid", false},
 	}
-	j.FlexibleWorkArrangements = nil
-	res = cl.Classify(j)
-	if res.WorkMode != "Onsite" || !res.WorkModeInferred {
-		t.Errorf("work_mode = %s inferred=%v, want Onsite/true", res.WorkMode, res.WorkModeInferred)
+	cl := New(nil)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			j := jobWithSSOC("25121")
+			for _, a := range tc.arrangements {
+				j.FlexibleWorkArrangements = append(j.FlexibleWorkArrangements,
+					mcf.FlexibleWorkArrangement{FlexibleWorkArrangement: a})
+			}
+			res := cl.Classify(j)
+			if res.WorkMode != tc.wantMode || res.WorkModeInferred != tc.wantInferred {
+				t.Errorf("work_mode = %s inferred=%v, want %s/%v",
+					res.WorkMode, res.WorkModeInferred, tc.wantMode, tc.wantInferred)
+			}
+		})
 	}
 }
 
