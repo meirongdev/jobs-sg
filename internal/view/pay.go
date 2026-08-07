@@ -10,14 +10,15 @@ import (
 // payPage is parsed once at init so a syntax error fails the build's tests
 // instead of surfacing as a 500 (the page renders live on every hit).
 var payPage = template.Must(template.New("pay").Funcs(template.FuncMap{
-	"bar":   Bar,
-	"pct":   Pct,
-	"money": Money,
-	"sup":   Suppressed,
-	"nav":   Nav,
-	"lens":  lensNav,
-	"cell":  payCell,
-	"bars":  ladderBars,
+	"bar":      Bar,
+	"barmoney": BarMoney,
+	"pct":      Pct,
+	"money":    Money,
+	"sup":      Suppressed,
+	"nav":      Nav,
+	"lens":     lensNav,
+	"cell":     payCell,
+	"bars":     ladderBars,
 }).Parse(payTmpl))
 
 // PayPage renders /pay.
@@ -67,7 +68,7 @@ const payTmpl = `<!DOCTYPE html>
 {{nav "/pay"}}
 {{lens "/pay" .Lens}}
 
-<p class="note">Every figure below is a salary a posting actually advertised — quartiles are picked from the sample, never interpolated. Only {{pct .Salary.Pct}} of postings disclose a monthly salary ({{.Salary.Disclosed}} of {{.Salary.Total}}), so these describe that disclosing subset, not the market. Cells with fewer than 5 disclosed salaries are withheld rather than shown: a quartile over four postings is both false precision and close to publishing one employer's range.</p>
+<p class="note">Every figure below is a salary a posting actually advertised — quartiles are picked from the sample, never interpolated. Only {{pct .Salary.Pct}} of postings disclose a monthly salary ({{.Salary.Disclosed}} of {{.Salary.Total}}), so these describe that disclosing subset, not the market. Cells with fewer than {{.CellFloor}} disclosed salaries are withheld rather than shown: a quartile over a handful of postings is both false precision and close to publishing one employer's range.</p>
 
 <h2>1. Median by seniority and role</h2>
 <p class="note">Each cell: median on top, 25th–75th percentile below.</p>
@@ -84,8 +85,8 @@ const payTmpl = `<!DOCTYPE html>
 </div>
 
 <h2>2. Experience ladder</h2>
-<p class="note">What another year of experience is worth. "0" means the posting explicitly asks for no experience; "unstated" means it did not say — for someone deciding whether to apply those are different answers, so they are never merged. This ladder is the experience dimension itself, so the experience filter above does not narrow it (the role filter does).</p>
-{{if bars .Ladder}}{{bar (bars .Ladder) 5}}{{end}}
+<p class="note">What another year of experience is worth. "0" means the posting explicitly asks for no experience; "unstated" means it did not say — for someone deciding whether to apply those are different answers, so they are never merged. This ladder is the experience dimension itself, so the experience filter above does not narrow it (the role filter does). Seniority in the grid above is a classification from the job title, level and stated experience; the rungs here are the stated experience alone, so the two do not line up row for row.</p>
+{{if bars .Ladder}}{{barmoney (bars .Ladder) 5}}{{else}}<p class="mut">No rung has enough disclosed salaries to chart; the table below still lists each rung's posting count.</p>{{end}}
 <table>
 <tr><th>Years required</th><th>Postings</th><th>p25</th><th>Median</th><th>p75</th></tr>
 {{range .Ladder}}<tr>
@@ -96,14 +97,14 @@ const payTmpl = `<!DOCTYPE html>
 </table>
 
 <h2>3. Who discloses pay</h2>
-<p class="note">Salary transparency by employer type. A type with fewer than 5 postings in the window is withheld rather than ranked on a handful.</p>
-<table>
+<p class="note">Salary transparency by employer type. A type with fewer than {{.CompanyFloor}} postings in the window is withheld rather than ranked on a handful.</p>
+{{if .ByCompany}}<table>
 <tr><th>Employer type</th><th>Postings</th><th>Disclose a salary</th></tr>
 {{range .ByCompany}}<tr>
   <td>{{.CompanyType}}</td><td>{{.Total}}</td>
   <td>{{if .Coverage.Suppressed}}{{sup .Coverage}}{{else}}{{pct .Pct}} ({{.Disclosed}}){{end}}</td>
 </tr>{{end}}
-</table>
+</table>{{else}}<p class="mut">No employer type has postings in this window.</p>{{end}}
 
 <div class="foot">Numbers computed by SQL from public MyCareersFuture data; data is refreshed daily, so it lags the live market by up to 24h. Methodology: docs/03-data-model.md · <a href="/ops">data freshness</a> · Compliance: aggregate statistics only, no personal data.</div>
 </div></body></html>`

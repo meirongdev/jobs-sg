@@ -39,16 +39,18 @@ type TransparencyRow struct {
 
 // PayReport is the /pay page model.
 type PayReport struct {
-	Window     string    // inclusive SGT date range of the rolling window
-	Days       int       // RollingDays, so the page can state its own window
-	Roles      []string  // grid columns, career-neutral alphabetical order
-	Grid       []PayRow  // rows in classify.SeniorityLevels order
-	RoleTotals []PayCell // each role across every seniority, index-aligned with Roles
-	Overall    PayCell
-	Ladder     []PayBand
-	Salary     Transparency // the whole window: disclosed vs all postings
-	ByCompany  []TransparencyRow
-	Lens       Lens
+	Window       string    // inclusive SGT date range of the rolling window
+	Days         int       // RollingDays, so the page can state its own window
+	CellFloor    int       // MinSalarySamplesPerCell, surfaced so the page states the bar it applies
+	CompanyFloor int       // MinPostingsPerCompanyStat, ditto
+	Roles        []string  // grid columns, career-neutral alphabetical order
+	Grid         []PayRow  // rows in classify.SeniorityLevels order
+	RoleTotals   []PayCell // each role across every seniority, index-aligned with Roles
+	Overall      PayCell
+	Ladder       []PayBand
+	Salary       Transparency // the whole window: disclosed vs all postings
+	ByCompany    []TransparencyRow
+	Lens         Lens
 }
 
 // ladderBands are the experience rungs, in career order.
@@ -82,10 +84,12 @@ var ladderBands = []struct {
 func PayReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) (*PayReport, error) {
 	w := Rolling(now, RollingDays)
 	r := &PayReport{
-		Window: w.RangeLabel(),
-		Days:   RollingDays,
-		Roles:  RoleFamilies(),
-		Lens:   lens,
+		Window:       w.RangeLabel(),
+		Days:         RollingDays,
+		CellFloor:    MinSalarySamplesPerCell,
+		CompanyFloor: MinPostingsPerCompanyStat,
+		Roles:        RoleFamilies(),
+		Lens:         lens,
 	}
 
 	cells, err := gridSamples(ctx, db, w, lens)

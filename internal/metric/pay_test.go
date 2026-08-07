@@ -297,3 +297,18 @@ func TestLadderBandsAccountForEveryPosting(t *testing.T) {
 		t.Errorf("rungs account for %d postings, want all %d — a band gap swallows postings silently", summed, total)
 	}
 }
+
+func TestPayReportSurfacesItsSuppressionFloors(t *testing.T) {
+	// The page states these numbers in prose; reading them from the report
+	// keeps the copy and the constants from drifting apart.
+	r, err := PayReportFor(context.Background(), seedFixture(t), fixtureNow, Lens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.CellFloor != MinSalarySamplesPerCell {
+		t.Errorf("CellFloor = %d, want %d", r.CellFloor, MinSalarySamplesPerCell)
+	}
+	if r.CompanyFloor != MinPostingsPerCompanyStat {
+		t.Errorf("CompanyFloor = %d, want %d", r.CompanyFloor, MinPostingsPerCompanyStat)
+	}
+}

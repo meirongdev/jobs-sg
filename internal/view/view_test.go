@@ -96,6 +96,22 @@ func TestSignedPctIsARelativePercentNotPP(t *testing.T) {
 	}
 }
 
+func TestBarMoneyLabelsValuesAsSalaries(t *testing.T) {
+	kvs := []metric.KV{{Key: "3-5", Value: 8700}}
+	money := string(BarMoney(kvs, 5))
+	if !strings.Contains(money, ">S$8700<") {
+		t.Errorf("BarMoney must label the value as currency, got:\n%s", money)
+	}
+	if !strings.Contains(money, `aria-label="monthly salary"`) {
+		t.Errorf("BarMoney must name its unit in the aria-label, got:\n%s", money)
+	}
+	// Bar keeps bare counts — /tech and /ops feed it posting counts.
+	counts := string(Bar(kvs, 5))
+	if !strings.Contains(counts, ">8700<") || strings.Contains(counts, "S$") {
+		t.Errorf("Bar must keep plain integer labels, got:\n%s", counts)
+	}
+}
+
 func TestMomentumGatedMessageNamesTheBarNotAFlatMarket(t *testing.T) {
 	// History is complete but every tech is sample-suppressed: the page must
 	// name the gate, never claim the market was flat.
