@@ -154,7 +154,21 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		db.FinishRun(ctx, runID, store.StatusFailed, 0, 0, 0, 0, 0, 0, 0, 1, "")
 		return res, err
 	}
-	defer archive.Close()
+	// The archive is gzip-buffered, so a full or failing disk usually surfaces
+	// at Close, when the last chunk is flushed — not at any individual Write.
+	// `defer archive.Close()` discarded exactly that error, losing the tail of
+	// the run's archive while the run still reported success. Close explicitly
+	// before the status is decided; the deferred call is the safety net for the
+	// early-return paths and is a no-op once it has run.
+	archiveClosed := false
+	closeArchive := func() error {
+		if archiveClosed {
+			return nil
+		}
+		archiveClosed = true
+		return archive.Close()
+	}
+	defer closeArchive()
 
 	client := mcf.NewClientWithRT(cfg.BaseURL, cfg.UA, cfg.Limit, maxPages, cfg.Delay, cfg.Transport)
 
@@ -182,7 +196,6 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	seen := map[string]bool{}
 	newCount, updatedCount, archivedCount := 0, 0, 0
 
-	var scanErr error
 	summary, err := client.EachPage(ctx, func(jobs []mcf.Job, _ int) (bool, error) {
 		// pass 1: archive the whole page first (archive-before-parse)
 		slots := make([]slot, len(jobs))
@@ -232,7 +245,6 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		return false, nil
 	})
 	if err != nil {
-		scanErr = err
 		res.Errors++
 		slog.Warn("scan incomplete", "err", err)
 	}
@@ -242,8 +254,35 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		res.Watermark = wm.String
 	}
 
+	if cerr := closeArchive(); cerr != nil {
+		res.Errors++
+		slog.Error("archive close failed, tail of this run may be unwritten", "err", cerr)
+	}
+
+	// A run that could not record everything it fetched is not a success.
+	//
+	// Only scanErr used to downgrade the status, so a failed archive write or
+	// upsert incremented res.Errors and the run still reported success. That is
+	// the worst combination available: the posting is in neither the archive nor
+	// the DB, the watermark advances past it on the strength of its neighbours,
+	// and the incremental never fetches it again — while
+	// jobs_sg_last_success_timestamp_seconds keeps ticking, so the staleness
+	// alert stays quiet. The archive is the only non-rebuildable asset (docs/02
+	// §4.1); losing from it silently is the one outcome worth being loud about.
+	//
+	// A single transient error costs a night: the next run succeeds and nothing
+	// alerts. Persistent failure — a full disk, a bad mount — keeps every run
+	// partial until JobsSgIngestStale fires, which is the intent.
+	//
+	// It also gates the reconcile's close logic below for free: partial scans
+	// must never mass-close (docs/02 §4.1), and an archive failure is exactly
+	// the kind of incomplete round that rule exists for.
+	//
+	// scanErr no longer needs its own variable: an incomplete scan already
+	// increments this count, and one rule now covers every way a round can come
+	// up short.
 	status := store.StatusSuccess
-	if scanErr != nil {
+	if res.Errors > 0 {
 		status = store.StatusPartial // data preserved, never fail the batch
 	}
 
@@ -278,6 +317,13 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 			}
 			res.Closed = expired + missed
 		}
+	}
+
+	// The close phase runs after the status is first decided, so re-apply the
+	// rule: a reconcile whose CloseExpired or MissAndClose failed left the
+	// lifecycle half-updated and must not be recorded as a clean round either.
+	if res.Errors > 0 {
+		status = store.StatusPartial
 	}
 
 	res.Pages = summary.Pages

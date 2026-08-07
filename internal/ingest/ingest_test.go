@@ -426,6 +426,96 @@ func TestReconcileReopensReturningJob(t *testing.T) {
 	}
 }
 
+// A run that could not record everything it fetched must not report success.
+//
+// Previously only an incomplete scan downgraded the status, so a failed archive
+// write or upsert bumped res.Errors and the run still said success — the
+// posting lands in neither the archive nor the DB, the watermark moves past it,
+// and jobs_sg_last_success_timestamp_seconds keeps ticking so nothing alerts.
+//
+// The failure is induced through job_post_id's UNIQUE constraint: two distinct
+// uuids advertising one post id is both realistic and the easiest of the class
+// to provoke. Archive-write failures reach the same counter and the same rule.
+func TestRunThatDroppedAPostingReportsPartial(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	now := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+
+	good := sweJob("a", "2026-08-01")
+	clash := sweJob("b", "2026-08-01")
+	clash.Metadata.JobPostID = good.Metadata.JobPostID // collides on INSERT
+
+	rt := &pageRT{pages: [][]mcf.Job{{good, clash}}, total: 2}
+	res, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: func() time.Time { return now }, Delay: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Errors == 0 {
+		t.Fatal("the colliding posting should have failed to upsert")
+	}
+	if res.Status != store.StatusPartial {
+		t.Errorf("status = %s, want partial — this run dropped a posting", res.Status)
+	}
+
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// and the audit row has to agree, since /metrics and the staleness alert
+	// read the status from there, not from Result
+	var status string
+	if err := db.QueryRowContext(ctx,
+		`SELECT status FROM ingest_run ORDER BY id DESC LIMIT 1`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != store.StatusPartial {
+		t.Errorf("ingest_run.status = %s, want partial", status)
+	}
+}
+
+// The success gate exists so a partial round never mass-closes (docs/02 §4.1).
+// Folding dropped postings into the status means an archive or upsert failure
+// now protects the lifecycle too, rather than only a failed scan doing so.
+func TestReconcileWithADroppedPostingSkipsClosing(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+
+	// baseline: a and b stored
+	rt := &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01"), sweJob("b", "2026-08-01")}}, total: 2}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: func() time.Time { return now }, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+
+	// reconcile sees only a, plus a new posting that cannot be stored
+	clash := sweJob("c", "2026-08-01")
+	clash.Metadata.JobPostID = "MCF-a" // collides with the stored posting a
+	rt2 := &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01"), clash}}, total: 2}
+	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: func() time.Time { return now }, Delay: 0, Reconcile: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != store.StatusPartial {
+		t.Fatalf("status = %s, want partial", res.Status)
+	}
+	if res.Closed != 0 {
+		t.Errorf("closed = %d, want 0 — a partial round must not touch the lifecycle", res.Closed)
+	}
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var miss int
+	if err := db.QueryRowContext(ctx, "SELECT miss_count FROM job WHERE uuid='b'").Scan(&miss); err != nil {
+		t.Fatal(err)
+	}
+	if miss != 0 {
+		t.Errorf("b miss_count = %d, want 0 — an incomplete round must not count a miss", miss)
+	}
+}
+
 func TestCircuitBreakerMarksPartial(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
