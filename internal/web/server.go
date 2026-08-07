@@ -49,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.handleRoot)
 	mux.HandleFunc("GET /tech", s.handleTech)
+	mux.HandleFunc("GET /pay", s.handlePay)
 	mux.HandleFunc("GET /w/{week}", s.handleWeek)
 	// Operational pages: kept as troubleshooting and data-freshness evidence,
 	// but out of the job-seeker nav. The old /daily paths stay as permanent

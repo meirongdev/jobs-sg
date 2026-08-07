@@ -27,4 +27,6 @@ const SuppressedCSS = `
 .lens{margin:10px 0 0;font-size:13px}.lens a{color:#60a5fa;text-decoration:none;margin-right:10px}
 .lens a.on{color:var(--fg);font-weight:600}
 .note{color:var(--mut);font-size:13px;margin:6px 0 0}
+.wide{max-width:1160px}.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll table{min-width:840px}table.detail td,table.detail th{padding:5px 8px;font-size:14px}
 `
