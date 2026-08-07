@@ -134,6 +134,11 @@ func TestComputeMetricsAndRender(t *testing.T) {
 	if !strings.Contains(html, "2026-W32") {
 		t.Error("HTML missing week label")
 	}
+	// docs/01 §5 red line: an outward page must say the data is a daily batch,
+	// or a reader treats a week-old snapshot as a live job board.
+	if !strings.Contains(html, "lag the live market by up to 24h") {
+		t.Error("weekly report does not disclose the data lag (docs/01 §5)")
+	}
 	md, err := RenderMarkdown(r)
 	if err != nil {
 		t.Fatalf("RenderMarkdown: %v", err)

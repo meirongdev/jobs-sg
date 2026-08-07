@@ -140,7 +140,7 @@ const htmlTmpl = `<!DOCTYPE html>
 <tr><td>Unmapped tech terms</td><td>{{.DataQuality.UnmappedTech}}</td></tr>
 </table>
 
-<div class="foot">Numbers computed by SQL from public MyCareersFuture data. Methodology: docs/03-data-model.md · <a href="/ops">data freshness</a> · Compliance: aggregate stats only, no personal data.</div>
+<div class="foot">Numbers computed by SQL from public MyCareersFuture data; collected daily, so figures lag the live market by up to 24h and this report is a snapshot of the week it covers — not a live job source. Methodology: docs/03-data-model.md · <a href="/ops">data freshness</a> · Compliance: aggregate stats only, no personal data.</div>
 </div></body></html>`
 
 const mdTmpl = `# Singapore SWE Hiring Report — Week {{.WeekLabel}}

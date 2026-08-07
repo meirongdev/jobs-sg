@@ -24,8 +24,13 @@ spec:
         - name: web
           image: ghcr.io/meirongdev/jobs-sg
           command: ["/usr/local/bin/jobs-sg-web"]
-          args: ["--data-dir", "/data", "--addr", ":8080"]
-          ports: [{containerPort: 8080}]
+          # /metrics listens on 9090, which the HTTPRoute below never targets:
+          # the route matches PathPrefix / on port 80 -> 8080, so operational
+          # metrics stay in-cluster while the statistics stay public.
+          args: ["--data-dir", "/data", "--addr", ":8080", "--metrics-addr", ":9090"]
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: metrics, containerPort: 9090}
           resources:
             requests: {cpu: 25m, memory: 64Mi}
             limits: {cpu: 200m, memory: 192Mi}
@@ -60,6 +65,11 @@ spec:
     - name: http
       port: 80
       targetPort: 8080
+    # Scraped by the ServiceMonitor in monitoring.yaml. Not referenced by any
+    # HTTPRoute, so it is reachable only from inside the cluster.
+    - name: metrics
+      port: 9090
+      targetPort: 9090
 ---
 # ReferenceGrant for the namespace gateway (must be v1beta1, docs/04 §2.2)
 apiVersion: gateway.networking.k8s.io/v1beta1

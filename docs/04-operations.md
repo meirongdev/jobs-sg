@@ -122,6 +122,8 @@ spec:
 
 ### 3.1 指标（`web` Pod 的 `/metrics`，从 `ingest_run` 与 `job` 表现算）
 
+> **端口**：`/metrics` 绑在 `web` 容器的 **9090**（`--metrics-addr`），与公共站点的 8080 分开；Service 相应开 `http`(80→8080) 与 `metrics`(9090→9090) 两个端口，ServiceMonitor 抓 **`port: metrics`**。HTTPRoute 只指向 `http`，所以 `/metrics` 集群外不可达（理由见 [02](02-design.md) §4.4）。**改 ServiceMonitor 的 `port` 时务必同步 Service 的端口名**——名字对不上 operator 同样是静默不抓。
+
 ```
 jobs_sg_last_success_timestamp_seconds{kind="incremental|full_reconcile|enrich|report"}
 jobs_sg_run_duration_seconds{kind=...}
