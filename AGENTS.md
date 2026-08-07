@@ -19,6 +19,7 @@ make vet     # run go vet ./...
 make fmt     # gofmt
 make tidy    # tidy go modules
 go run ./scripts/genfixture  # regenerate fixtures deterministically
+go run ./scripts/taxonomyaudit --data-dir ./data  # SSOC/tech taxonomy coverage report
 ```
 
 Local smoke (needs MCF API access):

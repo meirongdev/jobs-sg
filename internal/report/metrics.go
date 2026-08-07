@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/meirongdev/jobs-sg/internal/metric"
+	sgtpkg "github.com/meirongdev/jobs-sg/internal/sgt"
 	"github.com/meirongdev/jobs-sg/internal/store"
 )
 
-// sgt is the report timezone: every week and day bucket is an SGT calendar
-// period, while timestamps are stored as UTC (docs/03 §2).
-var sgt = time.FixedZone("SGT", 8*3600)
+// sgt is the report timezone. See internal/sgt for why it is a FixedZone.
+var sgt = sgtpkg.Zone
 
 // KV is a labeled value for report sections. It aliases metric.KV so the
 // aggregate layer and the renderer cannot drift apart.

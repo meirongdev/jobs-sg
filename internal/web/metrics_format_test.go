@@ -106,10 +106,10 @@ func TestMetricsFailLoudlyWhenOnlyTheJobTableIsUnreadable(t *testing.T) {
 		t.Errorf("code = %d, want 500 so Prometheus marks the target down", rec.Code)
 	}
 	body := rec.Body.String()
-	if strings.Contains(body, `jobs_sg_jobs_total{state="active"} 0`) {
+	if strings.Contains(body, `jobs_sg_jobs{state="active"} 0`) {
 		t.Error("reported 0 active postings from a failed query — indistinguishable from an empty market")
 	}
-	if strings.Contains(body, "jobs_sg_jobs_total") {
+	if strings.Contains(body, "jobs_sg_jobs") {
 		t.Error("emitted job counts despite the job table being unreadable")
 	}
 }
@@ -123,7 +123,7 @@ func TestMetricsOmitNewJobsBeforeAnyReport(t *testing.T) {
 		t.Errorf("reported a weekly figure before any report ran:\n%s", body)
 	}
 	// but the endpoint still works
-	if !strings.Contains(body, "jobs_sg_jobs_total") {
+	if !strings.Contains(body, "jobs_sg_jobs") {
 		t.Error("the rest of the exposition should still render")
 	}
 }

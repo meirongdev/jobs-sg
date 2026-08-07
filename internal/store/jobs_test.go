@@ -103,20 +103,25 @@ func TestReconcileLifecycle(t *testing.T) {
 	see("a", "2026-12-01T00:00:00Z", 6, 2)
 	see("b", "2026-09-01T00:00:00Z", 7, 3)
 	today := "2026-10-01"
-	closedExpired, err := db.CloseExpired(ctx, today)
+	// Round 1 sees a only. b is unseen AND expired -> closes immediately;
+	// c is unseen but not expired -> one miss, no close.
+	expired1, closed1, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closedExpired != 1 {
-		t.Errorf("closeExpired = %d, want 1 (job b)", closedExpired)
-	}
-	// c unseen once -> miss_count=1, not closed
-	closed1, err := db.MissAndClose(ctx, map[string]bool{"a": true, "b": true})
-	if err != nil {
-		t.Fatal(err)
+	if expired1 != 1 {
+		t.Errorf("expired = %d, want 1 (job b)", expired1)
 	}
 	if closed1 != 0 {
 		t.Errorf("round1 closed = %d, want 0 (need 2 misses)", closed1)
+	}
+	// b closed by expiry, not by the miss rule
+	var closedB sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT closed_at FROM job WHERE uuid='b'").Scan(&closedB); err != nil {
+		t.Fatal(err)
+	}
+	if !closedB.Valid {
+		t.Error("b is unseen and past expiry; it should close on this round")
 	}
 	var missC int
 	if err := db.QueryRowContext(ctx, "SELECT miss_count FROM job WHERE uuid='c'").Scan(&missC); err != nil {
@@ -127,7 +132,7 @@ func TestReconcileLifecycle(t *testing.T) {
 	}
 
 	// Round 2: c still unseen -> miss_count=2 -> closed
-	closed2, err := db.MissAndClose(ctx, map[string]bool{"a": true})
+	_, closed2, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +151,7 @@ func TestReconcileLifecycle(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `UPDATE job SET miss_count=5 WHERE uuid='a'`); err != nil {
 		t.Fatal(err)
 	}
-	if closed, err := db.MissAndClose(ctx, map[string]bool{"a": true}); err != nil || closed != 0 {
+	if _, closed, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today); err != nil || closed != 0 {
 		t.Errorf("seen job with stale miss_count: closed = %d (err %v), want 0", closed, err)
 	}
 	var missA int

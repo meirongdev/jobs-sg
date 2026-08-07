@@ -115,18 +115,14 @@ func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawP
 	// at all proves it is back on the board. Without this the two-week
 	// miss_count guard has no self-healing side — a posting the reconcile race
 	// mistakenly closed stays closed forever and the active count drifts down
-	// for good. Expiry is still authoritative: CloseExpired runs after the scan
-	// in the same round, so a posting listed past its expiry_date settles back
-	// on closed rather than flapping.
+	// for good.
 	//
-	// Open question, deliberately not settled here: a posting MCF keeps listing
-	// past its expiry_date is reopened and re-closed every reconcile, so its
-	// closed_at walks forward weekly. The lifecycle metric in spec §3.5 reads
-	// closed_at − posting_date and would see that as a posting that lives longer
-	// each week. Settling it means choosing whether the API listing or
-	// expiry_date is authoritative, which moves the headline active count in
-	// opposite directions — the spec section that consumes it carries the two
-	// options and how to tell from production whether it happens at all.
+	// Being listed beats a passed expiry_date, and CloseExpired now agrees: it
+	// only considers postings this round did not see (docs/02 §4.1 gates both
+	// close branches on `last_seen_at < 本轮 started_at`). Expiry decides how
+	// fast an already-vanished posting closes, never whether a listed one does
+	// — which is also the only reading a reader can act on, since the API is
+	// what they can actually apply through.
 	_, err = tx.ExecContext(ctx, `
 		UPDATE job SET job_post_id=?, title=?, description_sha256=?, company_uen=?,
 		  ssoc_code=?, occupation_id=?, category=?, position_level=?, employment_type=?,
@@ -183,77 +179,95 @@ func (d *DB) QueryWatermark(ctx context.Context) (sql.NullString, error) {
 	return wm, err
 }
 
-// CloseExpired closes (closed_at=now) jobs whose expiry_date < today —
-// only safe when the reconcile scan was status='success' (docs/02 §4.1).
-func (d *DB) CloseExpired(ctx context.Context, today string) (int, error) {
-	res, err := d.ExecContext(ctx, `
-		UPDATE job SET closed_at=?, miss_count=0
-		WHERE closed_at IS NULL AND expiry_date IS NOT NULL AND expiry_date < ?`,
-		NowUTC(), today)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
-}
-
-// MissAndClose increments miss_count for open jobs not seen in this round and
-// closes those with miss_count >= 2 (two consecutive weeks unseen — the
-// anti-race guard from docs/02 §4.1). Returns number newly closed.
+// MissAndClose applies both close branches from docs/02 §4.1 over the single
+// candidate set they share: postings this round did not see.
+//
+//	expiry_date < today  ->  close now          (it was due to come down anyway)
+//	otherwise            ->  miss_count++, close at 2
+//
+// The two branches were separate calls, and the expiry one had no candidate
+// gate at all — it closed by expiry date whether or not the scan had just seen
+// the posting. That re-closed anything MCF kept listing past its expiry every
+// single week, walking closed_at forward and inflating the listing length in
+// spec §3.5. Being listed is what a reader can act on, so a seen posting is
+// live and expiry only decides how fast a vanished one closes.
+//
+// Keying on the seen set rather than a last_seen_at timestamp is deliberate:
+// NowUTC has second precision, so two runs inside one second — every test, and
+// any fast production pair — cannot be told apart by time. The set is exact.
+//
+// Returns postings closed by expiry and by the two-miss rule, separately.
 //
 // The seen set is staged into a temp table so the whole pass is two UPDATEs
 // instead of a SELECT plus an UPDATE per open job: reconcile walks the entire
 // live market (~86k rows), and the row-at-a-time version spent minutes of the
 // job's deadline on round trips. The temp table is safe because a Tx pins one
 // connection, and a rollback discards it along with everything else.
-func (d *DB) MissAndClose(ctx context.Context, seen map[string]bool) (int, error) {
+func (d *DB) MissAndClose(ctx context.Context, seen map[string]bool, today string) (expired, missed int, err error) {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx,
 		`CREATE TEMP TABLE IF NOT EXISTS reconcile_seen(uuid TEXT PRIMARY KEY)`); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM reconcile_seen`); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	ins, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO reconcile_seen(uuid) VALUES(?)`)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer ins.Close()
 	for u := range seen {
 		if _, err := ins.ExecContext(ctx, u); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 
 	const unseen = `closed_at IS NULL AND uuid NOT IN (SELECT uuid FROM reconcile_seen)`
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE job SET miss_count = miss_count + 1 WHERE `+unseen); err != nil {
-		return 0, err
-	}
-	// only rows just missed can close here, so a job seen this round (miss_count
-	// reset to 0 by UpsertJob) can never be caught by a stale counter
+
+	// Expiry first. These rows gain a closed_at, which drops them out of
+	// `unseen` for the statements below, so a posting is never both expired and
+	// counted as missed.
 	res, err := tx.ExecContext(ctx,
-		`UPDATE job SET closed_at=? WHERE miss_count >= 2 AND `+unseen, NowUTC())
+		`UPDATE job SET closed_at=?, miss_count=0
+		 WHERE `+unseen+` AND expiry_date IS NOT NULL AND expiry_date < ?`, NowUTC(), today)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
+	expired = int(n)
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE job SET miss_count = miss_count + 1 WHERE `+unseen); err != nil {
+		return 0, 0, err
+	}
+	// only rows just missed can close here, so a job seen this round (miss_count
+	// reset to 0 by UpsertJob) can never be caught by a stale counter
+	res, err = tx.ExecContext(ctx,
+		`UPDATE job SET closed_at=? WHERE miss_count >= 2 AND `+unseen, NowUTC())
+	if err != nil {
+		return 0, 0, err
+	}
+	n, err = res.RowsAffected()
+	if err != nil {
+		return 0, 0, err
+	}
+	missed = int(n)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM reconcile_seen`); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return int(n), nil
+	return expired, missed, nil
 }
 
 func upsertSkills(ctx context.Context, tx *sql.Tx, j mcf.Job) error {

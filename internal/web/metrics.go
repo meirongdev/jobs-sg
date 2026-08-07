@@ -119,12 +119,12 @@ func (s *Server) renderMetrics(ctx context.Context) (string, error) {
 		duration.add("jobs_sg_run_duration_seconds{kind=%q} %d", kind, int64(en.Sub(st).Seconds()))
 	}
 
-	// Named _total but a gauge: it counts rows currently in each state, and
-	// active falls whenever postings close. Same for jobs_sg_unmapped_tech_total
-	// below. The names predate these type declarations and renaming them is a
-	// separate, breaking change.
+	// _total is the counter convention, and both of these move both ways —
+	// active falls whenever postings close, unmapped falls as terms get
+	// reviewed. Renamed while nothing is deployed and nothing queries them yet;
+	// doing it later would break dashboards for no added benefit.
 	jobs := &family{
-		name: "jobs_sg_jobs_total",
+		name: "jobs_sg_jobs",
 		help: "Candidate postings currently stored, by lifecycle state.",
 		typ:  "gauge",
 	}
@@ -135,8 +135,8 @@ func (s *Server) renderMetrics(ctx context.Context) (string, error) {
 	if _, err := s.scanRow(ctx, `SELECT count(*) FROM job WHERE closed_at IS NOT NULL`, nil, &closed); err != nil {
 		return "", fmt.Errorf("closed jobs: %w", err)
 	}
-	jobs.add("jobs_sg_jobs_total{state=%q} %d", "active", active)
-	jobs.add("jobs_sg_jobs_total{state=%q} %d", "closed", closed)
+	jobs.add("jobs_sg_jobs{state=%q} %d", "active", active)
+	jobs.add("jobs_sg_jobs{state=%q} %d", "closed", closed)
 
 	// The reported week used to ride along as a label, which minted a new time
 	// series every Monday and retired none — an unbounded label value is the
@@ -202,7 +202,7 @@ func (s *Server) renderMetrics(ctx context.Context) (string, error) {
 	backlog.add("jobs_sg_enrich_backlog %d", n)
 
 	unmapped := &family{
-		name: "jobs_sg_unmapped_tech_total",
+		name: "jobs_sg_unmapped_tech",
 		help: "Unreviewed terms the LLM returned that the taxonomy could not map.",
 		typ:  "gauge",
 	}
@@ -210,7 +210,7 @@ func (s *Server) renderMetrics(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unmapped tech: %w", err)
 	}
-	unmapped.add("jobs_sg_unmapped_tech_total %d", n)
+	unmapped.add("jobs_sg_unmapped_tech %d", n)
 
 	return render(append(families, backlog, unmapped)), nil
 }

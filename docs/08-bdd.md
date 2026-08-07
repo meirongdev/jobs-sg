@@ -89,8 +89,16 @@
 
 ### Scenario: 到期职位直接关闭
 - Given 职位 A `expiry_date < today` 且 `closed_at IS NULL`
+- **And 本轮对账未见到 A**（与"未到期消失"分支共用同一候选集）
 - When 本轮对账 status='success'
 - Then A 的 `closed_at` 置为当前时间、`miss_count=0`
+- And 无需等两轮未见——到期是"更快关闭"，不是"另一种关闭"
+
+### Scenario: 已过期但仍在挂的职位不关闭
+- Given 职位 A 的 `expiry_date` 已过
+- When 本轮对账**仍然见到** A
+- Then A 的 `closed_at` 保持 NULL（API 还在挂 = 读者还能投）
+- And 反复对账不得让 A 的 `closed_at` 逐周前移（否则 spec §3.5 的挂牌天数每周虚增 7 天）
 
 ### Scenario: 未到期消失需连续两周未见才关闭
 - Given 职位 B 未到期、closed_at IS NULL
