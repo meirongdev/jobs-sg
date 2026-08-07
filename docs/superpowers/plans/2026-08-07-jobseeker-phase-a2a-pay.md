@@ -1382,6 +1382,13 @@ Expected: 只落在本计划「文件结构」表列出的文件上。特别确�
 ## 交接给 A-2b / A-2c
 
 - **A-2b（`/` + `/companies`）**：需要 `buildFixtureDB` 灌 `closed_at`（见本计划开头的 A-1 更正），寿命指标按 spec §3.5 只统计已下架岗位并标注右删失；竞争度按 §3.6 归一化为日均投递。`/` 会把首页语义从静态周报换成现算快报——那时 `view.navItems` 的第一项要从 `Weekly report` 改成 `Market`，并给周报另找入口（`/w/{week}` 已存在），这正是 Task 1 收敛导航要付的红利。
+- **数据可得性审计（2026-08-07，合并 A-2a 后做的一次全列盘点）**：
+  1. **必修——透明率分子偏离 spec，系统性低估。** `windowTransparency` 的分子直接复用了 `disclosedSalaryPredicate`（`salary_hidden=0 AND salary_type='Monthly' AND min/max 齐全`），而 spec §3.3 定义的透明率是 `salary_hidden=0 AND salary_min IS NOT NULL`——**没有** Monthly 限制、也不要求 max。分母是全部 SWE 岗位（含年薪/时薪/未标单位），分子却只算月薪岗，于是公开了年薪的岗位被算成"不透明"。Monthly 限制对中位数是对的（跨单位求中位数无意义），对透明率是错的（"肯不肯告诉我薪资"与计价单位无关）。修法：给透明率单独一个谓词，与 `disclosedSalary` 分开；两处样本量各自披露。spec §3.3 已补写这个区分与理由。**影响面**：`/tech` 与 `/pay` 上所有透明率数字，以及 `/pay` 按公司类型的那张表。
+  2. **可选增量——`employment_type` 零消费。** 全职/兼职/合约已采集入库但没有任何页面读。求职者筛"只看全职"是真实需求。若做成第三个镜头维度，会**触发**本文件已记账的前置条件：`lensNav` 的四处 `metric.Lens{…}` 从头构造字面量必须先改成 copy-and-override，否则漏写一个字段就会在点击无关控件时静默重置该维度。
+  3. **可选增量——整张 `job_skill` 表零消费。** `UpsertJob` 在写（含 `is_key_skill` 区分硬性/加分项），没有任何页面读。它是 MCF 自带的技能标签，与我们用正则+LLM 抽的 `job_tech` 互补——后者只认技术栈，前者含"沟通""问题解决"这类非技术要求，且带必备/优先的区分。做"这个方向到底要求什么"时值得用上。
+  4. **已知零消费、暂不规划**：`district`/`postal_code`/`lat`/`lng`/`is_overseas`（地理，spec 无对应页面）、`employee_count`（仅用于推导 `company_type`）、`original_posting_date`、`occupation_id`。记录以免日后重新发现。
+  5. **能力边界（已写进 spec §3.6）**：竞争度只有快照无时间序列——`MarkSeen` 每次采集覆盖 `view_count`/`application_count`。日均归一化已是极限；要做趋势需新增按采集日快照的表。
+  6. **Phase B `/jobs` 的第二处缺口**：除已记账的 MCF 回链无字段外，**岗位描述不落库**——只存 `description_sha256`，正文在 `raw/*.jsonl.gz`（`enrich` 靠 `raw_path` 读回）。所以描述全文搜索做不了，除非读归档或加列。
 - **交给 A-2c 的新增收敛项（本次 review 发现，记录不修）**：
   - `swePosted` 的 `FROM job j WHERE …` 一体式形状塞不进 `LEFT JOIN`，导致 `transparencyByCompanyType` 手抄了同一份谓词。A-2b 要给活跃岗位加 `closed_at` 过滤时，`swePosted` 一改这份手抄就会悄悄漏掉。收敛办法：把 `swePosted` 拆成可组合的 `FROM` 片段 + 共享 `WHERE` 片段。
   - `Transparency` 允许 `Disclosed > Total`（会渲染出"104.0%"这种貌似合理的数）。`pay.go` 的两个构造点都用单行 `count(*)` + 条件 `sum()`，结构上不可能违反；只有 `TechReport` 用两次独立查询算 Disclosed 和 Total，理论上可达。本包惯例是"不该发生就响亮地死"（`Percentile` panic、`ParseLens` 拒绝），但两者风险性质不同：`Percentile` 的 panic 守的是确定性的程序员错误、每次测试运行都会先暴露；`Pct()` 的 panic 会在依赖数据与时序的条件下、于生产的渲染路径上触发。权衡后记录不修。**真要闭合的话，最便宜的办法不是 panic-vs-容忍之争，而是把 `TechReport` 的构造改成像 `pay.go` 两个构造点那样单查询原子化**——那样这个状态根本不可表示，无需裁决。
