@@ -45,9 +45,10 @@ func TestPremiumBaselineIsARealAdvertisedSalary(t *testing.T) {
 
 func TestTechTransparencyIsOneAtomicPair(t *testing.T) {
 	// Disclosed and Total come from a single row now, so Disclosed > Total is
-	// unrepresentable rather than merely unobserved. Also pin that switching to
-	// the atomic query did not change the disclosed count: it must still equal
-	// the number of rows the salary sample returns.
+	// unrepresentable rather than merely unobserved. Also pin the numerator's
+	// definition: it counts every posting that states its pay
+	// (statedSalaryPredicate), not the narrower monthly-range subset the
+	// medians rest on — see TestTransparencyCountsSalariesInAnyUnit.
 	ctx := context.Background()
 	db := seedFixture(t)
 	r, err := TechReportFor(ctx, db, fixtureNow, Lens{})
@@ -60,13 +61,69 @@ func TestTechTransparencyIsOneAtomicPair(t *testing.T) {
 	if r.Salary.Total == 0 {
 		t.Fatal("fixture window has no SWE postings")
 	}
-	var sample int
+	var stated int
 	if err := db.QueryRowContext(ctx,
-		`SELECT count(*) `+swePosted+` `+disclosedSalary, Rolling(fixtureNow, RollingDays).Args()...).Scan(&sample); err != nil {
+		`SELECT count(*) `+swePosted+` AND `+statedSalaryPredicate,
+		Rolling(fixtureNow, RollingDays).Args()...).Scan(&stated); err != nil {
 		t.Fatal(err)
 	}
-	if r.Salary.Disclosed != sample {
-		t.Errorf("Disclosed = %d, want %d (the disclosed-salary sample size)", r.Salary.Disclosed, sample)
+	if r.Salary.Disclosed != stated {
+		t.Errorf("Disclosed = %d, want %d (postings stating a salary, any unit)", r.Salary.Disclosed, stated)
+	}
+}
+
+func TestTransparencyCountsSalariesInAnyUnit(t *testing.T) {
+	// The shared fixture is all-Monthly, so it cannot tell the two predicates
+	// apart. Seed three postings: one monthly range, one annual range, one
+	// hidden. Transparency must count 2 of 3 — an openly advertised annual
+	// salary is not opaque — while the median rests on the monthly one alone.
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "jobs.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Seed(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cl := classify.New(map[string]string{"25121": classify.FamilyBackend})
+	day := LastCompletedWeek(fixtureNow).Start.In(SGT).Format("2006-01-02")
+	mk := func(uuid, unit string, hidden bool) {
+		j := mcf.Job{
+			UUID: uuid, Title: "Backend Engineer", Description: "go",
+			Metadata: mcf.Metadata{JobPostID: "MCF-" + uuid, NewPostingDate: day,
+				ExpiryDate: "2026-12-31", IsHideSalary: hidden},
+			SSOCCode:   "25121",
+			Categories: []mcf.Category{{Category: "Information Technology"}},
+			Salary: &mcf.Salary{Minimum: 7000, Maximum: 9000,
+				Type: mcf.SalaryType{SalaryType: unit}},
+		}
+		if _, err := db.UpsertJob(ctx, j, cl.Classify(j), "raw/x#0"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("monthly-1", "Monthly", false)
+	mk("annual-1", "Annual", false)
+	mk("hidden-1", "Monthly", true)
+
+	r, err := TechReportFor(ctx, db, fixtureNow, Lens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Salary.Total != 3 {
+		t.Fatalf("Total = %d, want 3", r.Salary.Total)
+	}
+	if r.Salary.Disclosed != 2 {
+		t.Errorf("Disclosed = %d, want 2 — an advertised annual salary is not opaque", r.Salary.Disclosed)
+	}
+	if r.MedianSample != 1 {
+		t.Errorf("MedianSample = %d, want 1 — only the monthly range is comparable", r.MedianSample)
+	}
+	if r.MedianAll != 8000 {
+		t.Errorf("MedianAll = %v, want 8000 (the monthly posting's midpoint)", r.MedianAll)
 	}
 }
 

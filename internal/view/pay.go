@@ -68,7 +68,7 @@ const payTmpl = `<!DOCTYPE html>
 {{nav "/pay"}}
 {{lens "/pay" .Lens}}
 
-<p class="note">Every figure below is a salary a posting actually advertised — quartiles are picked from the sample, never interpolated. Only {{pct .Salary.Pct}} of postings disclose a monthly salary ({{.Salary.Disclosed}} of {{.Salary.Total}}), so these describe that disclosing subset, not the market. Cells with fewer than {{.CellFloor}} disclosed salaries are withheld rather than shown: a quartile over a handful of postings is both false precision and close to publishing one employer's range.</p>
+<p class="note">Every figure below is a salary a posting actually advertised — quartiles are picked from the sample, never interpolated. The quartiles come from the {{.Overall.Coverage.Samples}} postings advertising a monthly range — they pin the unit so the figures are comparable — so they describe that subset, not the market. Separately, {{pct .Salary.Pct}} of SWE postings state pay at all ({{.Salary.Disclosed}} of {{.Salary.Total}}, in any unit); the rest hide it, and no figure here describes them. Cells with fewer than {{.CellFloor}} disclosed salaries are withheld rather than shown: a quartile over a handful of postings is both false precision and close to publishing one employer's range.</p>
 
 <h2>1. Median by seniority and role</h2>
 <p class="note">Each cell: median on top, 25th–75th percentile below.</p>
@@ -97,7 +97,7 @@ const payTmpl = `<!DOCTYPE html>
 </table>
 
 <h2>3. Who discloses pay</h2>
-<p class="note">Salary transparency by employer type. A type with fewer than {{.CompanyFloor}} postings in the window is withheld rather than ranked on a handful.</p>
+<p class="note">Salary transparency by employer type: the share of postings that state pay at all, in any unit — a posting advertising an annual salary is not hiding it. Unlike the quartiles above, this rate is not limited to monthly ranges. A type with fewer than {{.CompanyFloor}} postings in the window is withheld rather than ranked on a handful.</p>
 {{if .ByCompany}}<table>
 <tr><th>Employer type</th><th>Postings</th><th>Disclose a salary</th></tr>
 {{range .ByCompany}}<tr>

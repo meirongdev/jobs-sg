@@ -48,7 +48,7 @@ type PayReport struct {
 	RoleTotals   []PayCell // each role across every seniority, index-aligned with Roles
 	Overall      PayCell
 	Ladder       []PayBand
-	Salary       Transparency // the whole window: disclosed vs all postings
+	Salary       Transparency // the whole window: postings stating pay in any unit vs all postings
 	ByCompany    []TransparencyRow
 	Lens         Lens
 }
@@ -164,7 +164,7 @@ func cellOf(sorted []float64) PayCell {
 func gridSamples(ctx context.Context, db *store.DB, w Window, lens Lens) (map[string]map[string][]float64, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT coalesce(j.seniority,''), coalesce(j.role_family,''), `+salaryMidpoint+` `+
-		swePosted+lens.Where()+` `+disclosedSalary+`
+		swePosted+lens.Where()+` `+comparableSalary+`
 		ORDER BY 1, 2, 3`, w.Args()...)
 	if err != nil {
 		return nil, err
@@ -198,7 +198,7 @@ func ladder(ctx context.Context, db *store.DB, w Window, lens Lens) ([]PayBand, 
 			return nil, err
 		}
 		rows, err := db.QueryContext(ctx,
-			`SELECT `+salaryMidpoint+` `+swePosted+lens.Where()+` `+disclosedSalary+
+			`SELECT `+salaryMidpoint+` `+swePosted+lens.Where()+` `+comparableSalary+
 				` AND `+b.Predicate+` ORDER BY 1`, w.Args()...)
 		if err != nil {
 			return nil, err
@@ -231,7 +231,7 @@ func ladder(ctx context.Context, db *store.DB, w Window, lens Lens) ([]PayBand, 
 func transparencyByCompanyType(ctx context.Context, db *store.DB, w Window, lens Lens) ([]TransparencyRow, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT coalesce(c.company_type,'Other'), count(*),
-		       coalesce(sum(CASE WHEN `+disclosedSalaryPredicate+` THEN 1 ELSE 0 END),0)
+		       coalesce(sum(CASE WHEN `+statedSalaryPredicate+` THEN 1 ELSE 0 END),0)
 		`+sweFrom+` LEFT JOIN company c ON c.uen=j.company_uen
 		`+sweWhere+lens.Where()+`
 		GROUP BY 1`, w.Args()...)
