@@ -124,18 +124,30 @@ spec:
 
 > **端口**：`/metrics` 绑在 `web` 容器的 **9090**（`--metrics-addr`），与公共站点的 8080 分开；Service 相应开 `http`(80→8080) 与 `metrics`(9090→9090) 两个端口，ServiceMonitor 抓 **`port: metrics`**。HTTPRoute 只指向 `http`，所以 `/metrics` 集群外不可达（理由见 [02](02-design.md) §4.4）。**改 ServiceMonitor 的 `port` 时务必同步 Service 的端口名**——名字对不上 operator 同样是静默不抓。
 
+全部带 `# HELP` / `# TYPE`（各家族恰一次，头在样本之前）：
+
 ```
+# gauge
 jobs_sg_last_success_timestamp_seconds{kind="incremental|full_reconcile|enrich|report"}
 jobs_sg_run_duration_seconds{kind=...}
-jobs_sg_jobs_total{state="active|closed"}
-jobs_sg_jobs_new_total{week=...}
-jobs_sg_enrich_backlog          # is_swe=1 且无 job_tech(source='llm') 的数量
+jobs_sg_jobs_total{state="active|closed"}    # 名为 _total 实为 gauge，见下
+jobs_sg_jobs_new                             # 最近一个已物化 ISO 周的新增 SWE 岗位数
+jobs_sg_enrich_backlog                       # is_swe=1 且无 job_tech(source='llm') 的数量
+jobs_sg_unmapped_tech_total                  # 名为 _total 实为 gauge，见下
+# counter
 jobs_sg_llm_calls_total / jobs_sg_llm_cache_hits_total / jobs_sg_llm_errors_total
 jobs_sg_ingest_errors_total
-jobs_sg_unmapped_tech_total
 ```
 
 状态在 DB 不在进程内 → web 重启不丢指标。ServiceMonitor **必须带 `release: kube-prometheus-stack` 标签**（§2 第 5 条）。
+
+三条约定：
+
+1. **无值即不输出，绝不补 0**。首次 report 跑之前没有 `jobs_sg_jobs_new`，某 kind 没跑过就没有它那条 `last_success`。补 0 会让「还没有数据」和「真的是 0」不可区分。
+2. **任何 DB 错误 → 整个抓取 500**，Prometheus 据此把 target 标为 down（`up == 0`，本身就是信号）。曾经 job 计数用 `_ =` 吞掉错误，于是查询失败时输出 `jobs_sg_jobs_total{state="active"} 0`——和「市场一夜清空」无从分辨，建在它上面的告警会照着假数据响。行数不足（`sql.ErrNoRows`）不算错误，走第 1 条。
+3. **标签值必须是闭集**。现存标签只有 `kind` 与 `state`。`jobs_sg_jobs_new` 曾带 `week=` 标签，每周新增一条 series 且永不退休——这是把 Prometheus 撑爆的标准做法；周次由 Prometheus 自己的时间轴回答，不该进标签。
+
+> **遗留命名**：`jobs_sg_jobs_total` 与 `jobs_sg_unmapped_tech_total` 是 gauge 却带 `_total` 后缀（该后缀按约定属于 counter）。改名会破坏依赖它的查询，故单独作为一次变更处理；`jobs_sg_jobs_new` 因为本来就要改（去掉 `week` 标签已经改变了 series 身份）而顺势去掉了后缀。
 
 ### 3.2 告警规则（PrometheusRule，同样需 `release` 标签）
 
