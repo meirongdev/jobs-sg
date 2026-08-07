@@ -44,6 +44,12 @@ func seedReportData(t *testing.T, db *store.DB) {
 	mk("b2", "Backend Engineer", "Backend", "2026-08-04", 3, salary(6500, 8500, "Monthly", false), false, 120, 6)
 	mk("b3", "Backend Engineer", "Backend", "2026-08-05", 0, nil, true, 90, 4) // hidden salary, no exp
 	mk("f1", "Frontend Engineer", "Frontend", "2026-08-06", 3, salary(5500, 7500, "Monthly", false), false, 80, 3)
+	// Two more advertising a monthly range, so the sample clears
+	// metric.MinSalarySamplesPerCell and the median is actually published
+	// rather than withheld — the suppression path has its own test in
+	// internal/metric.
+	mk("b4", "Backend Engineer", "Backend", "2026-08-06", 5, salary(6000, 10000, "Monthly", false), false, 70, 2)
+	mk("f2", "Frontend Engineer", "Frontend", "2026-08-07", 2, salary(5000, 7000, "Monthly", false), false, 60, 1)
 	mk("b0", "Backend Engineer", "Backend", "2026-07-27", 3, nil, false, 50, 2) // prev week
 }
 
@@ -84,22 +90,33 @@ func TestComputeMetricsAndRender(t *testing.T) {
 	if r.WeekLabel != "2026-W32" {
 		t.Errorf("week label = %s, want 2026-W32", r.WeekLabel)
 	}
-	if r.NewJobs != 4 {
-		t.Errorf("new_jobs = %d, want 4", r.NewJobs)
+	if r.NewJobs != 6 {
+		t.Errorf("new_jobs = %d, want 6", r.NewJobs)
 	}
 	if r.PrevNewJobs != 1 {
 		t.Errorf("prev_new_jobs = %d, want 1", r.PrevNewJobs)
 	}
-	if r.ActiveJobs != 5 {
-		t.Errorf("active_jobs = %d, want 5 (all still open)", r.ActiveJobs)
+	if r.ActiveJobs != 7 {
+		t.Errorf("active_jobs = %d, want 7 (all still open)", r.ActiveJobs)
 	}
-	// salary median: b1 7000, b2 7500, f1 6500 -> sorted [6500 7000 7500] -> median 7000
+	// midpoints 7000/7500/6500/8000/6000 -> sorted [6000 6500 7000 7500 8000]
+	// -> upper median 7000, the same nearest-rank convention /pay prints
 	if int(r.SalaryMedian) != 7000 {
 		t.Errorf("salary median = %.0f, want 7000", r.SalaryMedian)
 	}
-	// no_exp_ratio: 1 of 4 has min_years_exp=0
-	if r.NoExpRatio != 0.25 {
-		t.Errorf("no_exp_ratio = %v, want 0.25", r.NoExpRatio)
+	// Entry-level counts replace no_exp_ratio, which folded "did not say" in
+	// with "no experience required" (spec §3.7-1). They are counts, and a
+	// subset of the week's new postings.
+	if r.Market == nil || r.Market.EntryJobs > r.NewJobs {
+		t.Errorf("entry-level %v is not a subset of %d new postings", r.Market, r.NewJobs)
+	}
+	// The sections now come from the metric layer, so the report and the live
+	// pages cannot disagree about what a week contained.
+	if r.Market.NewJobs != r.NewJobs {
+		t.Errorf("metric layer counts %d new postings, report counts %d", r.Market.NewJobs, r.NewJobs)
+	}
+	if r.Tech == nil || r.Tech.Week != r.WeekLabel {
+		t.Errorf("tech section reports week %v, want %s", r.Tech, r.WeekLabel)
 	}
 	// tech freq has kubernetes/golang from b1
 	found := false
@@ -126,10 +143,30 @@ func TestComputeMetricsAndRender(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderHTML: %v", err)
 	}
-	for _, sec := range []string{"Executive Snapshot", "Hiring Trends", "Tech Trends", "Compensation", "Demand Signals", "Skills-first", "Insights", "Data Quality"} {
-		if !strings.Contains(html, sec) {
+	// Section order follows spec §4.5: snapshot, technology, pay, entry, then
+	// competition, employers, and a plain statement of method. Data Quality is
+	// no longer a section — it is one line in the footer linking /ops.
+	wantOrder := []string{
+		"1. Snapshot", "2. Technology", "3. Pay", "4. Getting in",
+		"5. Competition and listing length", "6. Employers", "7. About these numbers",
+	}
+	at := -1
+	for _, sec := range wantOrder {
+		i := strings.Index(html, sec)
+		if i < 0 {
 			t.Errorf("HTML missing section %q", sec)
+			continue
 		}
+		if i < at {
+			t.Errorf("section %q is out of order", sec)
+		}
+		at = i
+	}
+	if strings.Contains(html, "<h2>8.") {
+		t.Error("Data Quality should be a footer line, not an eighth section")
+	}
+	if !strings.Contains(html, `href="/ops"`) {
+		t.Error("the footer must link the collection history")
 	}
 	if !strings.Contains(html, "2026-W32") {
 		t.Error("HTML missing week label")

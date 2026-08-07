@@ -41,25 +41,36 @@ type DataQuality struct {
 // Report holds all aggregates for one week (rendered from this struct; every
 // number computed by SQL above).
 type Report struct {
-	WeekStart      string // YYYY-MM-DD (SGT Monday)
-	WeekLabel      string // YYYY-Www
-	NewJobs        int
-	PrevNewJobs    int
-	ActiveJobs     int
-	TopRole        string
-	Roles          []KV
-	Seniorities    []KV
-	WorkModes      []KV
-	CompanyTypes   []KV
-	TopCompanies   []CompanyCount
-	TopTechs       []KV
-	SalaryMedian   float64
-	SalaryByRole   []KV
-	AvgViews       float64
-	AvgApps        float64
-	AvgCompetition float64
-	NoExpRatio     float64
-	DataQuality    DataQuality
+	WeekStart    string // YYYY-MM-DD (SGT Monday)
+	WeekLabel    string // YYYY-Www
+	NewJobs      int
+	PrevNewJobs  int
+	ActiveJobs   int
+	TopRole      string
+	Roles        []KV
+	Seniorities  []KV
+	WorkModes    []KV
+	CompanyTypes []KV
+	TopCompanies []CompanyCount
+	TopTechs     []KV
+	SalaryMedian float64
+
+	// Sections sourced from internal/metric rather than recomputed here. The
+	// report and the live pages now answer the same questions from one
+	// definition — which is the point of the metric layer (spec §4.2), and the
+	// only way "口径可比" survives having two renderers.
+	//
+	// It also retires three figures spec §3.7 called wrong: a single salary
+	// median with no sample disclosure (§3.7-4) becomes the percentile ladder;
+	// raw view/application averages that actually measured posting age
+	// (§3.7-2) become per-day rates; and a "no experience required" share that
+	// folded "unstated" in with "zero" (§3.7-1) becomes entry-level counts.
+	Tech    *metric.TechReport
+	Pay     *metric.PayReport
+	Market  *metric.MarketReport
+	Company *metric.CompanyReport
+
+	DataQuality DataQuality
 }
 
 // ISOWeekLabel returns the YYYY-Www label (ISO 8601 week, SGT timezone).
@@ -174,34 +185,51 @@ func ComputeMetrics(ctx context.Context, db *store.DB, monday time.Time) (*Repor
 	}
 	writeGroup(ctx, db, put, weekStart, "tech_freq", "tech", r.TopTechs)
 
-	// salary median (monthly, salary_hidden=0)
-	r.SalaryMedian, err = salaryMedian(ctx, db, start, end)
-	if err != nil {
-		return nil, err
-	}
-	put("salary_median", "monthly", "salary", r.SalaryMedian)
+	// Sections computed by the metric layer, anchored on the reported week
+	// rather than on wall-clock time, so regenerating an old report reproduces
+	// its numbers instead of recomputing them against today.
+	//
+	// Two anchors, because the two window helpers want opposite sides of the
+	// boundary: LastCompletedWeek needs an instant INSIDE the following week to
+	// return the reported one, while Rolling ends at the end of the SGT day
+	// containing its argument, so it needs the reported week's last instant to
+	// stop exactly at the week boundary.
+	weekAnchor := end
+	rollAnchor := end.Add(-time.Nanosecond)
+	lens := metric.Lens{}
 
-	// salary by role (monthly medians)
-	r.SalaryByRole, err = salaryByRole(ctx, db, start, end)
-	if err != nil {
+	if r.Tech, err = metric.TechReportFor(ctx, db, weekAnchor, lens); err != nil {
+		return nil, err
+	}
+	if r.Pay, err = metric.PayReportFor(ctx, db, rollAnchor, lens); err != nil {
+		return nil, err
+	}
+	if r.Market, err = metric.MarketReportFor(ctx, db, weekAnchor, lens); err != nil {
+		return nil, err
+	}
+	if r.Company, err = metric.CompanyReportFor(ctx, db, rollAnchor, lens); err != nil {
 		return nil, err
 	}
 
-	// demand signals
-	r.AvgViews, r.AvgApps, r.AvgCompetition, err = demand(ctx, db, start, end)
-	if err != nil {
-		return nil, err
+	// salary_median keeps its weekly_metric row for historical continuity, but
+	// the figure now comes from the same percentile code the site prints —
+	// including its suppression. Below the sample floor the row is omitted
+	// rather than written as 0: weekly_metric is what a future trend query
+	// reads, and a fabricated zero there outlives the page that refused to
+	// show it.
+	r.SalaryMedian = r.Pay.Overall.P50
+	if !r.Pay.Overall.Coverage.Suppressed {
+		put("salary_median", "monthly", "salary", r.SalaryMedian)
 	}
-	put("avg_views", "views", "demand", r.AvgViews)
-	put("avg_applications", "apps", "demand", r.AvgApps)
-	put("avg_competition", "competition", "demand", r.AvgCompetition)
 
-	// skills-first: share with no experience requirement
-	r.NoExpRatio, err = noExpRatio(ctx, db, start, end)
-	if err != nil {
-		return nil, err
+	// Momentum's inputs, materialised for audit. The pages compute share live;
+	// these rows are what makes "口径变更须全量重算" (docs/01 §4) checkable
+	// after the fact, and what a future trend query reads instead of replaying
+	// five weeks of aggregation (spec §3.1).
+	put("swe_enriched", "", "", float64(r.Tech.Denom))
+	for _, t := range r.Tech.Ranked {
+		put("tech_share", t.Slug, "tech", t.Share)
 	}
-	put("no_exp_ratio", "no_exp", "skills_first", r.NoExpRatio)
 
 	// data quality
 	r.DataQuality, err = quality(ctx, db)
@@ -282,124 +310,6 @@ func techFrequency(ctx context.Context, db *store.DB, start, end time.Time) ([]K
 		out = append(out, KV{Key: k, Value: float64(v)})
 	}
 	return out, rows.Err()
-}
-
-func salaryMedian(ctx context.Context, db *store.DB, start, end time.Time) (float64, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT (salary_min+salary_max)/2.0 FROM job
-		WHERE is_swe=1 AND posting_date >= ? AND posting_date < ?
-		  AND salary_hidden=0 AND salary_type='Monthly' AND salary_min IS NOT NULL AND salary_max IS NOT NULL
-		ORDER BY 1`, start.Format(time.RFC3339), end.Format(time.RFC3339))
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-	var vals []float64
-	for rows.Next() {
-		var v float64
-		if err := rows.Scan(&v); err != nil {
-			return 0, err
-		}
-		vals = append(vals, v)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-	if len(vals) == 0 {
-		return 0, nil
-	}
-	// upper median on even samples: always a salary that actually appeared,
-	// never an averaged value nobody advertised (docs/03 §6)
-	return vals[len(vals)/2], nil
-}
-
-func salaryByRole(ctx context.Context, db *store.DB, start, end time.Time) ([]KV, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT role_family, (salary_min+salary_max)/2.0 FROM job
-		WHERE is_swe=1 AND posting_date >= ? AND posting_date < ?
-		  AND salary_hidden=0 AND salary_type='Monthly' AND salary_min IS NOT NULL AND salary_max IS NOT NULL
-		ORDER BY role_family, 2`, start.Format(time.RFC3339), end.Format(time.RFC3339))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	type acc struct{ vals []float64 }
-	m := map[string]*acc{}
-	var order []string
-	for rows.Next() {
-		var k string
-		var v float64
-		if err := rows.Scan(&k, &v); err != nil {
-			return nil, err
-		}
-		if m[k] == nil {
-			m[k] = &acc{}
-			order = append(order, k)
-		}
-		m[k].vals = append(m[k].vals, v)
-	}
-	var out []KV
-	for _, k := range order {
-		vals := m[k].vals
-		out = append(out, KV{Key: k, Value: vals[len(vals)/2]})
-	}
-	return out, rows.Err()
-}
-
-func demand(ctx context.Context, db *store.DB, start, end time.Time) (views, apps, competition float64, err error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT view_count, application_count, vacancies FROM job
-		WHERE is_swe=1 AND posting_date >= ? AND posting_date < ?`,
-		start.Format(time.RFC3339), end.Format(time.RFC3339))
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	defer rows.Close()
-	var tv, ta float64
-	var comps []float64
-	n := 0
-	for rows.Next() {
-		var v, a, vac sqlNullableInt
-		if err := rows.Scan(&v, &a, &vac); err != nil {
-			return 0, 0, 0, err
-		}
-		if v.Valid {
-			tv += float64(v.Int64)
-		}
-		if a.Valid {
-			ta += float64(a.Int64)
-		}
-		denom := int64(1)
-		if vac.Valid && vac.Int64 > 0 {
-			denom = vac.Int64
-		}
-		if a.Valid {
-			comps = append(comps, float64(a.Int64)/float64(denom))
-		}
-		n++
-	}
-	if n == 0 {
-		return 0, 0, 0, rows.Err()
-	}
-	if len(comps) == 0 {
-		comps = []float64{0}
-	}
-	sort.Float64s(comps)
-	return tv / float64(n), ta / float64(n), comps[len(comps)/2], rows.Err()
-}
-
-func noExpRatio(ctx context.Context, db *store.DB, start, end time.Time) (float64, error) {
-	var total, noExp int
-	if err := db.QueryRowContext(ctx, `
-		SELECT count(*), coalesce(sum(CASE WHEN min_years_exp IS NULL OR min_years_exp=0 THEN 1 ELSE 0 END),0) FROM job
-		WHERE is_swe=1 AND posting_date >= ? AND posting_date < ?`,
-		start.Format(time.RFC3339), end.Format(time.RFC3339)).Scan(&total, &noExp); err != nil {
-		return 0, err
-	}
-	if total == 0 {
-		return 0, nil
-	}
-	return float64(noExp) / float64(total), nil
 }
 
 func quality(ctx context.Context, db *store.DB) (DataQuality, error) {
