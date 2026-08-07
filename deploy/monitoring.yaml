@@ -51,12 +51,28 @@ spec:
           labels: {severity: warning}
           annotations:
             summary: jobs-sg ingest errors rising — possible API schema change
-        - alert: JobsSgEnrichBacklog
-          expr: 'jobs_sg_enrich_backlog > 2000'
-          for: 30m
+        # Watches the backlog's FLOOR rising, not its level.
+        #
+        # A level threshold cannot work here: the first run's baseline scan
+        # stores every currently-live posting at once (~11k candidates), and the
+        # LLM drains ~420 a night against ~300 arriving — so an absolute alert
+        # fires on night one and keeps firing for the month or two it takes to
+        # burn down. That is the same cry-wolf failure JobsSgIngestStale had.
+        #
+        # The floor is what carries the signal. In steady state the backlog
+        # sawtooths — ingest adds at 02:15, enrich drains at 03:10 — so the
+        # post-enrich trough returns to roughly the same place each day.
+        # Comparing today's trough against yesterday's asks the question that
+        # actually matters: is the pipeline still keeping up? A stalled DGX, an
+        # expired virtual key or an enrich job that stopped running all push the
+        # floor up by a day's intake; a large backlog that is steadily draining
+        # pushes it down and stays quiet.
+        - alert: JobsSgEnrichBacklogGrowing
+          expr: 'min_over_time(jobs_sg_enrich_backlog[1d]) - min_over_time(jobs_sg_enrich_backlog[1d] offset 1d) > 500'
+          for: 2h
           labels: {severity: warning}
           annotations:
-            summary: jobs-sg enrich backlog >2000 — LLM may be down
+            summary: jobs-sg enrich backlog floor rising >500/day — LLM may be down or too slow to keep up
         - alert: JobsSgCronJobFailed
           expr: 'kube_job_status_failed{namespace="jobs-sg"} > 0'
           for: 10m
