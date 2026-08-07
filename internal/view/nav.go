@@ -17,9 +17,10 @@ type navItem struct {
 // out on purpose — they are linked from page footers as data-freshness
 // evidence, not offered to someone looking for work.
 var navItems = []navItem{
-	{"/", "Weekly report"},
+	{"/", "Market"},
 	{"/tech", "Tech"},
 	{"/pay", "Pay"},
+	{"/reports", "Weekly report"},
 }
 
 // Nav renders the main navigation, marking active as the current page. Pass ""

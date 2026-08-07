@@ -26,8 +26,12 @@ func TestOutwardPagesDiscloseDataLag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	market, err := MarketPage(&metric.MarketReport{Week: "2026-W32"})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	for name, html := range map[string]string{"notice": notice, "/tech": tech, "/pay": pay} {
+	for name, html := range map[string]string{"notice": notice, "/tech": tech, "/pay": pay, "/": market} {
 		if !strings.Contains(html, "lags the live market by up to 24h") {
 			t.Errorf("%s does not disclose the data lag (docs/01 §5)", name)
 		}

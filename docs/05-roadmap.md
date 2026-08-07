@@ -24,7 +24,7 @@
 - [x] `ingest`：增量 + **全类目归档** + SQLite schema + 首跑基线（[02](02-design.md) §4.1）
 - [x] 规则层技术栈抽取（无 LLM）
 - [x] `report` 生成 HTML/Markdown（本地跑通）
-- [x] fixture（360 条，跨 6 个完整 ISO 周）+ 归一化/口径回放测试（**仍是 `genfixture` 生成的样例，待实录 API 后替换为真实捕获**；且**无已下架岗位**，见 Phase 3 backlog）
+- [x] fixture（360 条，跨 6 个完整 ISO 周）+ 归一化/口径回放测试（**仍是 `genfixture` 生成的样例，待实录 API 后替换为真实捕获**；已下架岗位由 `closeFixturePostings` 在建库时注入）
 - [x] 容器化 + GH Actions → GHCR（amd64 + arm64）
 - [ ] **部署**：GHCR 包设 Public → 取 digest → manifests 同步 homelab → Vault 密钥 → ArgoCD sync（步骤见 [09](09-deploy-runbook.md)）
 - [ ] 顺手修 homelab 文档两处 port 8000 → 80（`docs/CONVENTIONS.md`、`.claude/skills/add-service/SKILL.md`，见 [04](04-operations.md) §2 第 1 条）
@@ -53,8 +53,8 @@
 1. **Phase 0 分类口径核定**（原列在 Phase 0，未做）。`ssoc_taxonomy` 现有 16 条种子，本文档自己估计需要 30–50 条；未映射的 `251*` 码一律回落 `Backend`，其余回落 `Other-IT`，taxonomy 越不全 Backend 兜得越多。
    **推迟的理由是它上线后变简单**：Phase 0 要的「抽样 2,000 条 IT 职位」正是首次 ingest 落地后 `jobs.db` 与 `raw/` 里现成的东西，不必再写一次性抓取脚本。
    **风险与兜底**：在核定之前，周报与 `/tech` 的角色分布可能偏斜。可接受，因为 archive-before-parse 使口径可全量重算（docs/01 §4 本就要求口径变更重算历史）。**首个完整周报发布前应先做完这项**。
-2. **fixture 掺入已下架岗位**（spec §7.1 要求，未做）。现 360 条全为 Active，`buildFixtureDB` 也不灌 `closed_at`。挡住 A-2b 的岗位寿命指标与右删失标注的测试。
-3. **A-2b**：`/` 现算快报页 + `/companies`。`/` 目前仍托管最新周报，无周报时渲染说明页。
+2. ~~**fixture 掺入已下架岗位**~~ —— **已完成**（2026-08-07）。`buildFixtureDB` 里 `closeFixturePostings` 按确定性规则关掉 1/3 的岗位，寿命覆盖 `<7 / 7-14 / 15-30 / 30-60 / 60+` 各档含边界值；其余 2/3 保持在架，右删失因此可见。
+3. **A-2b**：~~`/` 现算快报页~~ **已完成**（2026-08-07：在架量、周新增、WoW、12 周趋势、方向/资历/工作模式分布、入门岗绝对数；导航改为 Market/Tech/Pay/Weekly report，周报移到 `/reports`）。**剩 `/companies`**——持续招聘者、类型分布、各家竞争度与透明率，与 spec §3.5 岗位寿命、§3.6 竞争度分层（`lifecycle.go`）一并做，两页共用同一套机器。
 4. **A-2c**：周报章节重排、Telegram 改求职者口播、`weekly_metric` 物化 `tech_share`/`swe_enriched`、report 的窗口助手收敛到 `metric.Window`。
 5. **Phase B `/jobs`**：前置为验证 MCF 回链格式（spec §6）；另注意描述正文不落库，全文搜索需读归档或加列。
 6. 零散项：`closed_at` 对「过期但仍在挂」的岗位逐周前移（口径待 A-2b 定，spec §3.5 已记）· 五份 SGT 常量待合并 · `jobs_sg_jobs_total` 与 `jobs_sg_unmapped_tech_total` 是 gauge 却带 `_total` 后缀 · `lensNav` 四处 `metric.Lens` 字面量改 copy-and-override（触发条件：加第三个镜头维度）· `employment_type` 与整张 `job_skill` 表零消费 · 日增量路径归档失败已降级 partial，但单条失败仍不重试。

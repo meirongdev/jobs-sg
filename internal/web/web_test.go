@@ -95,11 +95,32 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
-func TestRootServesLatest(t *testing.T) {
+// "/" is the live market snapshot now, not the static report: "how many jobs
+// are there" has to be a current number, and the report is up to a week stale
+// by the Sunday before the next one (spec §2.2).
+func TestRootServesTheLiveMarketPage(t *testing.T) {
 	s := setupWeb(t)
 	rec := get(t, s, "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "<h1>latest</h1>") {
+		t.Error("root still serves the static weekly report")
+	}
+	for _, want := range []string{"On the board now", "Singapore SWE Jobs"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("root missing %q", want)
+		}
+	}
+}
+
+// ...and the report keeps a home of its own.
+func TestReportsServesLatest(t *testing.T) {
+	s := setupWeb(t)
+	rec := get(t, s, "/reports")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "latest") {
-		t.Errorf("root = %d %q", rec.Code, rec.Body.String())
+		t.Errorf("/reports = %d %q", rec.Code, rec.Body.String())
 	}
 }
 
