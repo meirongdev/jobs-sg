@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+// sgt is the archive's calendar.
+//
+// Every date bucket in this system is an SGT calendar day (docs/02 §4.4), and
+// the daily ingest fires at 02:15 SGT — 18:15 UTC the day *before*. Naming the
+// directory after the UTC date therefore filed each night's run under the
+// previous day: /ops would show a crawl on 2026-08-07 while its archive sat in
+// raw/2026-08-06/, so restoring "the archive for the 7th" handed you the 6th's.
+//
+// FixedZone, not LoadLocation: the scratch runtime image carries no tzdata
+// (same reason as cmd/ingest).
+var sgt = time.FixedZone("SGT", 8*3600)
+
 // ArchiveWriter appends job records to a per-day gzip JSONL file, one JSON
 // object per line. Archiving happens before any filtering/parsing (docs/02
 // §4.1): the raw archive is the only non-rebuildable asset.
@@ -21,10 +33,10 @@ type ArchiveWriter struct {
 	gz    *gzip.Writer
 }
 
-// NewArchiveWriter opens (creating as needed) the archive file for the given
-// date, using an increasing sequence number so one day may span files.
+// NewArchiveWriter opens (creating as needed) the archive file for t's SGT
+// calendar day, using an increasing sequence number so one day may span files.
 func NewArchiveWriter(root string, t time.Time) (*ArchiveWriter, error) {
-	date := t.UTC().Format("2006-01-02")
+	date := t.In(sgt).Format("2006-01-02")
 	dir := filepath.Join(root, date)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err

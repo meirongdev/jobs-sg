@@ -30,6 +30,18 @@ type Config struct {
 	Now              func() time.Time // injectable clock for tests
 }
 
+// sgt is this package's calendar. Every date bucket in the system is an SGT
+// calendar day (docs/02 §4.4), and MCF reports expiry_date as a bare
+// Singapore-local date. FixedZone, not LoadLocation: the scratch runtime image
+// carries no tzdata (same reason as cmd/ingest).
+//
+// The fifth copy of this constant in the repo — cmd/ingest, cmd/report,
+// internal/report and internal/metric each hold one. internal/metric exports
+// its as metric.SGT, but a pipeline stage reaching into the aggregation layer
+// for a timezone is the wrong dependency direction; consolidating all five is
+// its own change.
+var sgt = time.FixedZone("SGT", 8*3600)
+
 // slot is what the archive pass decided about one posting: loc is where this
 // run wrote it, empty when the run had no reason to (the reconcile already
 // holds a copy). failed marks an attempted write that errored — those postings
@@ -247,7 +259,13 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 			res.Errors++
 			slog.Warn("reconcile deviation too high, skipping close", "dev", deviation, "seen", summary.Jobs, "total", summary.Total)
 		} else {
-			today := now().UTC().Format("2006-01-02")
+			// expiry_date arrives from MCF as a bare Singapore-local date
+			// ("2026-09-02"), so "today" has to be the SGT one. Taking the UTC
+			// date instead made every reconcile compare against the previous
+			// SGT day — it runs at 02:15 SGT, which is still yesterday in UTC —
+			// so a posting that expired yesterday survived expiry closure and
+			// waited on the slower two-week miss_count path instead.
+			today := now().In(sgt).Format("2006-01-02")
 			expired, cerr := db.CloseExpired(ctx, today)
 			if cerr != nil {
 				res.Errors++

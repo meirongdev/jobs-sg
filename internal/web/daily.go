@@ -82,17 +82,12 @@ func (s *Server) handleDailyDate(w http.ResponseWriter, r *http.Request) {
 
 // servePage returns the cached rendering of a page, building it on a miss.
 func (s *Server) servePage(w http.ResponseWriter, key string, now time.Time, build func() (string, error)) {
-	if html, ok := s.cache.get(key, now); ok {
-		writeHTML(w, html)
-		return
-	}
-	html, err := build()
+	html, err := s.cache.do(key, now, build)
 	if err != nil {
 		slog.Error("build page", "page", key, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.cache.put(key, html, now)
 	writeHTML(w, html)
 }
 

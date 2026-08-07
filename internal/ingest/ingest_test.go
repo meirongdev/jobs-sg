@@ -332,6 +332,48 @@ func TestReconcileKeepsRawPathItDidNotRewrite(t *testing.T) {
 	}
 }
 
+// MCF reports expiry_date as a bare Singapore-local date, and the reconcile
+// runs at 02:15 SGT — 18:15 UTC the day before. Comparing against the UTC date
+// therefore asked "did this expire before yesterday?", so a posting that
+// expired yesterday survived the expiry rule and fell through to the slower
+// two-week miss_count path.
+func TestReconcileClosesExpiredAgainstTheSGTDate(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	// 18:15 UTC on the 6th == 02:15 SGT on the 7th, the real nightly slot
+	runAt := time.Date(2026, 8, 6, 18, 15, 0, 0, time.UTC)
+	now := func() time.Time { return runAt }
+
+	// expired at the end of the 6th SGT: dead by the time this run starts
+	job := sweJob("a", "2026-07-01")
+	job.Metadata.ExpiryDate = "2026-08-06"
+	rt := &pageRT{pages: [][]mcf.Job{{job}}, total: 1}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: now, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+
+	rt2 := &pageRT{pages: [][]mcf.Job{{job}}, total: 1}
+	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: now, Delay: 0, Reconcile: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Closed != 1 {
+		t.Errorf("closed = %d, want 1 — expiry_date 2026-08-06 is past on 2026-08-07 SGT", res.Closed)
+	}
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var closedAt sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT closed_at FROM job WHERE uuid='a'").Scan(&closedAt); err != nil {
+		t.Fatal(err)
+	}
+	if !closedAt.Valid {
+		t.Error("an expired posting should carry closed_at after a successful reconcile")
+	}
+}
+
 // A posting that comes back after being closed must reopen. The store-level
 // lifecycle test cannot stand in for this one: reopen only matters if the path
 // ingest actually walks performs it, and for a while it did not — the only code
