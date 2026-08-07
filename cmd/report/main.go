@@ -6,11 +6,9 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/meirongdev/jobs-sg/internal/report"
@@ -109,7 +107,7 @@ func main() {
 		ThreadID: os.Getenv("TELEGRAM_THREAD_ID"),
 	}
 	if tg.Enabled() {
-		summary := telegramSummary(r, *baseURL)
+		summary := report.TelegramSummary(r, *baseURL)
 		if err := tg.SendSummary(context.Background(), summary); err != nil {
 			slog.Warn("telegram push failed (non-fatal)", "err", err)
 		} else {
@@ -120,19 +118,4 @@ func main() {
 	}
 
 	slog.Info("report generated", "week", r.WeekLabel, "new_jobs", r.NewJobs, "html", htmlPath)
-}
-
-func telegramSummary(r *report.Report, baseURL string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "🗓 *SG SWE Report %s*\n", r.WeekLabel)
-	fmt.Fprintf(&b, "New SWE jobs: *%d* (prev %d)\n", r.NewJobs, r.PrevNewJobs)
-	fmt.Fprintf(&b, "Active postings: *%d*\n", r.ActiveJobs)
-	if len(r.TopTechs) > 0 {
-		fmt.Fprintf(&b, "Top tech: *%s* (%d)\n", r.TopTechs[0].Key, int(r.TopTechs[0].Value))
-	}
-	if r.SalaryMedian > 0 {
-		fmt.Fprintf(&b, "Median monthly salary: *S$%.0f*\n", r.SalaryMedian)
-	}
-	fmt.Fprintf(&b, "\n%s/w/%s", strings.TrimRight(baseURL, "/"), r.WeekLabel)
-	return b.String()
 }

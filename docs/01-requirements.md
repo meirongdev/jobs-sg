@@ -32,18 +32,21 @@
 
 ### 2.1 周报章节（归档视图的内部结构）
 
-当前渲染顺序（A-2c 将按 spec §4.5 重排为：快报 → 技术含动量 → 薪资分位 → 入门门槛 → 竞争与寿命 → 雇主 → 数据说明）：
+按 spec §4.5 重排（2026-08-07 落地）。各节数字**全部由 `internal/metric` 计算**，与 `/`、`/tech`、`/pay`、`/companies` 同一份口径——周报与实时页不可能就"这周发生了什么"给出不同答案。
 
-| 章节 | 回答的问题 | 核心指标 |
+| 章节 | 回答的问题 | 来源 |
 |---|---|---|
-| Executive Snapshot | 本周市场热度如何 | 新增 SWE 岗位数、环比、在架总量、最热角色 |
-| Hiring Trends | 谁在招、招什么级别 | 角色分布、资历分布、公司类型分布、Top 10 招聘公司 |
-| Tech Trends | 什么技术在升温/降温 | 技术频次 Top 30、环比升降最快 Top 10 |
-| Compensation | 给多少钱 | 按角色/资历的薪资中位数与四分位（仅公开薪资） |
-| Demand Signals | 竞争多激烈 | 平均浏览量/投递数、投递竞争度 —— MCF 独有字段，商业职位 API 通常不给，**本系统差异化指标** |
-| Skills-first | 门槛在降低吗 | 无学历要求、零经验要求岗位占比 |
-| Insights | 怎么解读 | LLM 生成的自然语言解读（只基于已算好的数字，见 §4） |
-| Data Quality | 这期数据可信吗 | ingest/enrich 成功率、LLM 缓存命中率、未映射技术词数 |
+| 1. Snapshot | 这周热不热 | 新增量、环比、在架量、最忙方向 + 三个分布 |
+| 2. Technology | 什么在升温 | `metric.TechReport`：需求排名 + 动量（pp，历史不足则说明） |
+| 3. Pay | 给多少钱 | `metric.PayReport` 经验阶梯 p25/p50/p75 + 透明率；样本不足即抑制 |
+| 4. Getting in | 门槛多高 | `metric.MarketReport` 入门岗**绝对数**（取代原 `no_exp_ratio`） |
+| 5. Competition and listing length | 多抢手、挂多久 | `metric.CompanyReport`：日均投递/浏览 + 已下架岗位挂牌天数（标右删失） |
+| 6. Employers | 谁在招 | Top 雇主 + 类型分布 |
+| 7. About these numbers | 这些数怎么来的 | 一段方法说明 |
+
+原第 8 章 Data Quality **已收为页脚一行** + 链到 `/ops`。
+
+> **口径修正（spec §3.7）落地位置**：①`no_exp_ratio` 混淆"0 年"与"未标注" → 第 4 节改用入门岗计数；②`avg_views`/`avg_apps` 实为岗位年龄 → 第 5 节改为日均归一化；④单一 `salary_median` 无样本披露 → 第 3 节改为分位阶梯，且样本不足时**连 `weekly_metric` 行都不写**（写 0 会比页面上不显示活得更久）。
 
 ## 3. 分类维度（标准化目标）
 
