@@ -314,6 +314,12 @@ func TestEveryNavHrefResolvesToARegisteredRoute(t *testing.T) {
 	// A nav entry whose route was never registered renders a live 404 link and
 	// no test would notice: reviewers confirmed an unregistered /salary entry
 	// passed the entire suite. Walk the rendered nav and GET each href.
+	//
+	// Asserting non-404 rather than ==200 on purpose: a page that legitimately
+	// 500s on this thin fixture is a different problem from a missing route.
+	// Note this also happens to catch a method-only mismatch today, but only
+	// because `GET /` is a catch-all subtree whose handler 404s non-root paths;
+	// tightening that registration to `GET /{$}` would let a 405 through here.
 	s := setupWeb(t)
 	body := get(t, s, "/tech").Body.String()
 	open := strings.Index(body, `<nav class="nav">`)
@@ -344,6 +350,15 @@ func TestEveryNavHrefResolvesToARegisteredRoute(t *testing.T) {
 		t.Fatalf("expected at least 3 nav links, found %d in %s", len(hrefs), nav)
 	}
 	for _, h := range hrefs {
+		// The scanner matches the bare `href="` token anywhere in the nav block,
+		// so a future inline SVG icon (xlink:href="#ico-…") would feed a fragment
+		// to httptest.NewRequest, which panics — and a panic here aborts the whole
+		// package binary, silently skipping every test declared after this one.
+		// Fail attributably instead.
+		if !strings.HasPrefix(h, "/") {
+			t.Errorf("extracted a non-path href %q — the nav markup changed shape, check the scanner", h)
+			continue
+		}
 		if code := get(t, s, h).Code; code == http.StatusNotFound {
 			t.Errorf("nav links %s, which is not a registered route (404)", h)
 		}

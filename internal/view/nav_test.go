@@ -6,6 +6,9 @@ import (
 )
 
 func TestNavListsEveryJobSeekerPageOnce(t *testing.T) {
+	// Hardcoded on purpose, unlike TestNavRendersInReadingOrder: this test's
+	// job is to assert the nav contains exactly the pages we intend, so
+	// deriving its expectations from navItems would make it vacuous.
 	html := string(Nav("/tech"))
 	for _, want := range []string{`href="/"`, `href="/tech"`, `href="/pay"`} {
 		if strings.Count(html, want) != 1 {
@@ -40,14 +43,22 @@ func TestNavWithoutAnActivePageHighlightsNothing(t *testing.T) {
 }
 
 func TestNavRendersInReadingOrder(t *testing.T) {
-	// navItems' doc comment promises reading order; without this, reversing the
-	// slice passes every other test in the repo.
+	// The expected order is written out by hand on purpose. Deriving it from
+	// navItems would compare the slice against itself and pass for every
+	// permutation, including the full reversal this test exists to catch. The
+	// length gate below is what keeps a newly added page from silently escaping
+	// the order guarantee: add an item to navItems and this fails until someone
+	// consciously decides where it belongs.
+	want := []string{"/", "/tech", "/pay"}
+	if len(want) != len(navItems) {
+		t.Fatalf("navItems has %d entries but this test pins %d — widen want and place the new page deliberately",
+			len(navItems), len(want))
+	}
 	html := string(Nav(""))
-	want := []string{`href="/"`, `href="/tech"`, `href="/pay"`}
 	at := make([]int, len(want))
-	for i, w := range want {
-		if at[i] = strings.Index(html, w); at[i] < 0 {
-			t.Fatalf("nav missing %s: %s", w, html)
+	for i, h := range want {
+		if at[i] = strings.Index(html, `href="`+h+`"`); at[i] < 0 {
+			t.Fatalf("nav missing href=%q: %s", h, html)
 		}
 	}
 	for i := 1; i < len(at); i++ {
