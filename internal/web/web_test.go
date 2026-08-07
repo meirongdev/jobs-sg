@@ -310,6 +310,46 @@ func TestOpsIsNotInTheJobSeekerNav(t *testing.T) {
 	}
 }
 
+func TestEveryNavHrefResolvesToARegisteredRoute(t *testing.T) {
+	// A nav entry whose route was never registered renders a live 404 link and
+	// no test would notice: reviewers confirmed an unregistered /salary entry
+	// passed the entire suite. Walk the rendered nav and GET each href.
+	s := setupWeb(t)
+	body := get(t, s, "/tech").Body.String()
+	open := strings.Index(body, `<nav class="nav">`)
+	if open < 0 {
+		t.Fatal("/tech has no nav block")
+	}
+	end := strings.Index(body[open:], "</nav>")
+	if end < 0 {
+		t.Fatal("/tech nav block is unterminated")
+	}
+	nav := body[open : open+end]
+
+	var hrefs []string
+	for rest := nav; ; {
+		i := strings.Index(rest, `href="`)
+		if i < 0 {
+			break
+		}
+		rest = rest[i+len(`href="`):]
+		j := strings.Index(rest, `"`)
+		if j < 0 {
+			t.Fatalf("unterminated href in nav: %s", nav)
+		}
+		hrefs = append(hrefs, rest[:j])
+		rest = rest[j:]
+	}
+	if len(hrefs) < 3 {
+		t.Fatalf("expected at least 3 nav links, found %d in %s", len(hrefs), nav)
+	}
+	for _, h := range hrefs {
+		if code := get(t, s, h).Code; code == http.StatusNotFound {
+			t.Errorf("nav links %s, which is not a registered route (404)", h)
+		}
+	}
+}
+
 func TestRedirectTargetDoesNotAccumulateAcrossRequests(t *testing.T) {
 	// get() rebuilds the mux per call, resetting redirectTo's closure — which
 	// is precisely why it can never catch the accumulation bug the closure's
