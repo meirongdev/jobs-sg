@@ -203,7 +203,7 @@ Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature
 3. Telegram 推送摘要 + 链接（复用 Vault `secret/homelab/telegram` 的 bot token；**发独立话题，不占用告警话题 `messageThreadID: 2`**——运维告警与内容推送混流会稀释告警注意力）
 4. 更新 `report/index.html` 与 `report/latest.html`
 
-周报章节 → 数据来源映射（章节定义见 [01](01-requirements.md) §2）：
+周报章节 → 数据来源映射（章节定义见 [01](01-requirements.md) §2.1）：
 
 | 章节 | 数据来源 |
 |---|---|

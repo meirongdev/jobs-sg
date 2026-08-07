@@ -1,6 +1,6 @@
 # 数据模型与分类口径
 
-> 实现期主参照。上游设计见 [02-design](02-design.md)；指标业务含义见 [01-requirements](01-requirements.md) §2。
+> 实现期主参照。上游设计见 [02-design](02-design.md)；指标业务含义见 [01-requirements](01-requirements.md) §2（页面定义）与 §2.1（周报章节）。
 > 演进原则：**归档先于解析**——DB 永远可从 `raw/*.jsonl.gz` 回放重建，schema 改动不焦虑。
 > **v2.1 变更**：`job.miss_count` 新增（对账防误关）；容量估算按全类目归档修订；明确 `is_candidate`（宽）/`is_swe`（严）两级谓词；§8 可选快照表。
 
