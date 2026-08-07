@@ -156,9 +156,11 @@ jobs_sg_ingest_errors_total
 | `JobsSgIngestStale` | `min without(kind) (time() - jobs_sg_last_success_timestamp_seconds{kind=~"incremental\|full_reconcile"}) > 36h` | warning | **最重要的告警**——静默失效比崩溃更危险 |
 | `JobsSgReconcileStale` | 同上，`full_reconcile > 10d` | warning | 在架量指标失真 |
 
+> **为什么 enrich 积压看的是「地板抬升」而非绝对值**：首跑基线一次性把全部在架候选岗位（≈11k）灌进来，而 LLM 每晚只能排掉约 420 条、每天又新进约 300 条——绝对阈值会在上线第一晚就响，并持续响一到两个月直到烧完。而积压在稳态下是锯齿形（02:15 ingest 加、03:10 enrich 减），**每日低谷**才是信号所在：拿今天的低谷比昨天的低谷，问的正是「管线还跟不跟得上」。DGX 停机、虚拟密钥过期、enrich 作业没跑，都会把地板顶高一天的进量；而一个正在稳步排空的大积压会把地板压低，保持安静。
+
 > **为什么 `JobsSgIngestStale` 要同时匹配两个 kind**：周日那轮 ingest 把自己记成 `full_reconcile`（`cmd/ingest` 按 SGT 星期几判定），`incremental` 系列因此每周固定断档 48h > 36h 阈值。只匹配 `incremental` 会让这条告警每周误报约 12 小时（周日 06:45 UTC 起至当日 18:15 UTC 下一轮增量），而它恰恰是本系统最不该被噪音淹没的一条。`min without(kind)` 取两者中最近的一次成功，语义即"任何形式的采集都超过 36h 没成功过"。
 | `JobsSgIngestErrors` | `increase(jobs_sg_ingest_errors_total[1d]) > 20` | warning | API 语义变更的早期信号 |
-| `JobsSgEnrichBacklog` | `jobs_sg_enrich_backlog > 2000` | warning | LLM 长期不可用 |
+| `JobsSgEnrichBacklogGrowing` | `min_over_time(jobs_sg_enrich_backlog[1d]) - min_over_time(…[1d] offset 1d) > 500` | warning | LLM 不可用或跟不上 |
 | `JobsSgCronJobFailed` | `kube_job_status_failed{namespace="jobs-sg"} > 0` | warning | 兜底（kube-state-metrics 现成） |
 
 均走现有 Alertmanager → Telegram（`severity=warning|critical` 路由已在线）。

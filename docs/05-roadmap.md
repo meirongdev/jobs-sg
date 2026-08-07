@@ -17,28 +17,47 @@
 
 ## Phase 1 — MVP（1 周）
 
-> 代码侧已完成（2026-08-03，commit `82da838` 起）；**部署侧待执行**：镜像 digest、homelab 同步、密钥、ArgoCD。fixture 为字段结构对齐的**样例**（离线环境无法实录 API，标注于 [fixture](../testdata/fixture/jobs.jsonl) 与 `scripts/genfixture`）。
+> **勾选约定（2026-08-07 起）**：`[x]` = 代码已完成并有测试；`[ ]` = 未做或**只差部署**。
+> 代码与部署是两条独立进度，混在一个勾里会让人读不出「能不能上线」。逐项部署状态见
+> [09-deploy-runbook](09-deploy-runbook.md)。
 
 - [x] `ingest`：增量 + **全类目归档** + SQLite schema + 首跑基线（[02](02-design.md) §4.1）
 - [x] 规则层技术栈抽取（无 LLM）
 - [x] `report` 生成 HTML/Markdown（本地跑通）
-- [x] **真实 API fixture（~100 条）+ 归一化/口径回放测试**（v2.1 新增——口径可信的前提；**待实录 API 后替换为真实捕获**）
-- [x] 容器化 + GH Actions → GHCR（amd64 + arm64，digest 固定）—— CI 已写好，镜像尚未首次构建
-- [ ] manifests 落 homelab 仓库，ArgoCD 同步，CronJob 跑通（[deploy/](../deploy/) 已就绪，待同步）
+- [x] fixture（360 条，跨 6 个完整 ISO 周）+ 归一化/口径回放测试（**仍是 `genfixture` 生成的样例，待实录 API 后替换为真实捕获**；且**无已下架岗位**，见 Phase 3 backlog）
+- [x] 容器化 + GH Actions → GHCR（amd64 + arm64）
+- [ ] **部署**：GHCR 包设 Public → 取 digest → manifests 同步 homelab → Vault 密钥 → ArgoCD sync（步骤见 [09](09-deploy-runbook.md)）
 - [ ] 顺手修 homelab 文档两处 port 8000 → 80（`docs/CONVENTIONS.md`、`.claude/skills/add-service/SKILL.md`，见 [04](04-operations.md) §2 第 1 条）
 
 **DoD**：连续 3 天自动增量成功（`ingest_run` 有 3 条 `success`）；周报 HTML 可在 `jobs.meirong.dev` 打开。
 
 ## Phase 2 — 生产化（1 周）
 
-- [ ] 每周全量对账 + `closed_at` 生命周期（success 门控 + `miss_count` 两周判定 + reopen，[02](02-design.md) §4.1）
-- [ ] `enrich` 接 Bifrost（缓存、降级链、fail-open）
-- [ ] `/metrics` + ServiceMonitor + 5 条 PrometheusRule
-- [ ] Telegram 周报推送（独立话题，不占告警话题）
+> 本阶段**代码基本已完成**，卡在部署与真实环境验证上。
+
+- [x] 每周全量对账 + `closed_at` 生命周期（success 门控 + `miss_count` 两周判定 + reopen，[02](02-design.md) §4.1）
+- [x] `enrich` 接 Bifrost（缓存、降级链、fail-open、思考模式开关）
+- [x] `/metrics`（独立 9090 端口）+ ServiceMonitor + 5 条 PrometheusRule
+- [x] Telegram 周报推送（独立话题，不占告警话题；错误不打印 bot token）
 - [ ] restic 备份接入（`jobs.db` + **归档目录**）+ **实际恢复演练**（`PRAGMA integrity_check` 通过）
 - [ ] Grafana 面板、homepage 条目、Uptime Kuma monitor
+- [ ] **告警链路端到端验证**（真实集群里才做得了）
 
 **DoD**：告警链路端到端验证（手动停一次 CronJob，确认 `JobsSgIngestStale` 到 Telegram）；restore 演练通过。
+
+## Backlog — 首个部署版本刻意推迟的（2026-08-07 定）
+
+> 为了尽快让管线在真实数据上跑起来，下列各项全部推迟。排序即建议的处理顺序。
+> 判据：**不上线就验证不了的排前面；上线后反而变容易的，不该挡在上线之前。**
+
+1. **Phase 0 分类口径核定**（原列在 Phase 0，未做）。`ssoc_taxonomy` 现有 16 条种子，本文档自己估计需要 30–50 条；未映射的 `251*` 码一律回落 `Backend`，其余回落 `Other-IT`，taxonomy 越不全 Backend 兜得越多。
+   **推迟的理由是它上线后变简单**：Phase 0 要的「抽样 2,000 条 IT 职位」正是首次 ingest 落地后 `jobs.db` 与 `raw/` 里现成的东西，不必再写一次性抓取脚本。
+   **风险与兜底**：在核定之前，周报与 `/tech` 的角色分布可能偏斜。可接受，因为 archive-before-parse 使口径可全量重算（docs/01 §4 本就要求口径变更重算历史）。**首个完整周报发布前应先做完这项**。
+2. **fixture 掺入已下架岗位**（spec §7.1 要求，未做）。现 360 条全为 Active，`buildFixtureDB` 也不灌 `closed_at`。挡住 A-2b 的岗位寿命指标与右删失标注的测试。
+3. **A-2b**：`/` 现算快报页 + `/companies`。`/` 目前仍托管最新周报，无周报时渲染说明页。
+4. **A-2c**：周报章节重排、Telegram 改求职者口播、`weekly_metric` 物化 `tech_share`/`swe_enriched`、report 的窗口助手收敛到 `metric.Window`。
+5. **Phase B `/jobs`**：前置为验证 MCF 回链格式（spec §6）；另注意描述正文不落库，全文搜索需读归档或加列。
+6. 零散项：`closed_at` 对「过期但仍在挂」的岗位逐周前移（口径待 A-2b 定，spec §3.5 已记）· 五份 SGT 常量待合并 · `jobs_sg_jobs_total` 与 `jobs_sg_unmapped_tech_total` 是 gauge 却带 `_total` 后缀 · `lensNav` 四处 `metric.Lens` 字面量改 copy-and-override（触发条件：加第三个镜头维度）· `employment_type` 与整张 `job_skill` 表零消费 · 日增量路径归档失败已降级 partial，但单条失败仍不重试。
 
 ## Phase 3 — 持续演进（按需）
 
