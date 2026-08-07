@@ -139,8 +139,10 @@ jobs_sg_unmapped_tech_total
 
 | 告警 | 条件 | severity | 说明 |
 |---|---|---|---|
-| `JobsSgIngestStale` | `time() - jobs_sg_last_success_timestamp_seconds{kind="incremental"} > 36h` | warning | **最重要的告警**——静默失效比崩溃更危险 |
+| `JobsSgIngestStale` | `min without(kind) (time() - jobs_sg_last_success_timestamp_seconds{kind=~"incremental\|full_reconcile"}) > 36h` | warning | **最重要的告警**——静默失效比崩溃更危险 |
 | `JobsSgReconcileStale` | 同上，`full_reconcile > 10d` | warning | 在架量指标失真 |
+
+> **为什么 `JobsSgIngestStale` 要同时匹配两个 kind**：周日那轮 ingest 把自己记成 `full_reconcile`（`cmd/ingest` 按 SGT 星期几判定），`incremental` 系列因此每周固定断档 48h > 36h 阈值。只匹配 `incremental` 会让这条告警每周误报约 12 小时（周日 06:45 UTC 起至当日 18:15 UTC 下一轮增量），而它恰恰是本系统最不该被噪音淹没的一条。`min without(kind)` 取两者中最近的一次成功，语义即"任何形式的采集都超过 36h 没成功过"。
 | `JobsSgIngestErrors` | `increase(jobs_sg_ingest_errors_total[1d]) > 20` | warning | API 语义变更的早期信号 |
 | `JobsSgEnrichBacklog` | `jobs_sg_enrich_backlog > 2000` | warning | LLM 长期不可用 |
 | `JobsSgCronJobFailed` | `kube_job_status_failed{namespace="jobs-sg"} > 0` | warning | 兜底（kube-state-metrics 现成） |
