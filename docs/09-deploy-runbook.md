@@ -15,7 +15,9 @@ make kind-down                          # 用完拆掉
 
 `kind-e2e` 会建集群 → 构镜像 → 应用 overlay → 建库 → 等 rollout → 冒烟。它验证的是**在真集群里才会暴露的东西**：Service 端口名与 ServiceMonitor 是否对得上、探针路径是否可达、只读挂载下 SQLite 能否打开、`/metrics` 是否只在 9090 上而不在公网端口上。
 
-> `test/integration/kind/reference/` 是 `deploy/` 的镜像副本。**改了 `deploy/` 就要同步 `reference/`**，否则闸门验的是旧清单。
+> `test/integration/kind/reference/` 是 `deploy/` 的镜像副本。**改了 `deploy/` 就要同步 `reference/`**，否则闸门验的是旧清单。（当前已同步。）
+
+**最近一次实跑**：2026-08-07，全绿。关键断言：`/healthz` → `ok`、metrics 端口 9090 → `HTTP 200`、**公网端口 `/metrics` → `HTTP 404`**（即端口拆分在真集群里确实生效），`deployment "jobs-sg-web" successfully rolled out`（只读挂载下 SQLite 打得开、探针通得过）。
 
 ---
 
@@ -74,9 +76,13 @@ web.yaml  monitoring.yaml  kustomization.yaml
 | `telegram-bot-token` | 周报推送 | 复用 `secret/homelab/telegram` |
 | `telegram-chat-id` | 同上 | 同上 |
 | `telegram-thread-id` | **内容话题**，必须与告警话题（`2`）不同 | 见 [02](02-design.md) §4.3 |
-| `llm-virtual-key` | Bifrost `x-bf-vk` | Bifrost UI 里创建，**持久化在 PVC 的 SQLite、不在 git**，再手工写进 Vault |
+| `bifrost-vk` | Bifrost `x-bf-vk` 虚拟密钥 | Bifrost UI 里创建，**持久化在 PVC 的 SQLite、不在 git**，再手工写进 Vault |
 
+> **键名要与 manifests 逐字一致**（`deploy/cronjob-*.yaml` 的 `secretKeyRef.key`）。写错 `bifrost-vk` 不会报错：`enrich` 是 fail-open 的，取不到密钥就退回纯规则层继续跑完、退出码 0——**技术栈富化静默失效，而作业看起来是成功的**。上线后务必按 §4 验一次 LLM 层真的在工作。
+>
 > `telegram-thread-id` 必须是**整数字符串**，非数字会被代码拒绝并报错（宁可失败也不会静默发进 General 话题）。
+
+模型链默认 `custom_dgx/deepseek-v4-flash` → `custom_m2` → 纯规则，可用 `LLM_MODELS`（逗号分隔）覆盖；`LLM_BASE_URL` 已硬编码在 `cronjob-enrich.yaml` 指向集群内 Bifrost。
 
 ---
 
@@ -103,6 +109,15 @@ curl -sS localhost:9090/metrics | head
 ```
 
 Prometheus 侧确认 target 已被发现（`up{namespace="jobs-sg"} == 1`）。若为空，回去查第 4、5 条踩坑。
+
+**确认 LLM 层真的接上了**（fail-open 会把密钥错配伪装成正常）：
+
+```sh
+kubectl -n jobs-sg create job --from=cronjob/enrich enrich-manual-1
+kubectl -n jobs-sg logs -f job/enrich-manual-1     # 看 llm_calls 是否 > 0
+# 或从指标看：llm_calls 一直为 0 而 backlog 不降 = 没接上
+curl -sS localhost:9090/metrics | grep -E 'jobs_sg_llm_calls_total|jobs_sg_enrich_backlog'
+```
 
 ---
 
