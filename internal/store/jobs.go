@@ -18,6 +18,14 @@ import (
 // This is the only path by which a posting is recorded as seen: both the daily
 // incremental and the weekly reconcile go through it, so the lifecycle columns
 // it touches (last_seen_at, miss_count, closed_at) are maintained in one place.
+//
+// An empty rawPath means "this run archived nothing for this posting" and keeps
+// whatever raw_path is already stored, rather than blanking it. The weekly
+// reconcile re-sights ~86k postings it has no reason to archive again, and
+// raw_path is how enrich reads a description back (docs/03 §3) — overwriting it
+// with "" would strand every one of those postings in the enrich backlog. An
+// INSERT still requires a real path: a posting nobody has archived cannot be
+// enriched, so callers must archive before first storing one.
 func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawPath string) (bool, error) {
 	now := NowUTC()
 	hash := hashHex(j.Description)
@@ -117,7 +125,7 @@ func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawP
 		  role_family=?, seniority=?, work_mode=?, is_swe=?, posting_date=?,
 		  expiry_date=?, repost_count=?, status=?, last_seen_at=?, miss_count=0, closed_at=NULL,
 		  view_count=?, application_count=?, district=?, postal_code=?, lat=?, lng=?, is_overseas=?,
-		  raw_path=? WHERE uuid=?`,
+		  raw_path=coalesce(nullif(?,''), raw_path) WHERE uuid=?`,
 		j.Metadata.JobPostID, j.Title, hash, nullStr(uen),
 		j.SSOCCode, j.OccupationID, cat, posLevel, empType,
 		nullInt(j.MinimumYearsExperience), salaryMin(j.Salary), salaryMax(j.Salary), salaryType(j.Salary),
@@ -134,6 +142,29 @@ func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawP
 		return false, err
 	}
 	return false, tx.Commit()
+}
+
+// KnownUUIDs returns every job uuid already stored, so a scan can tell a
+// posting it has archived before from one it is seeing for the first time.
+//
+// Materialised in one query rather than probed per posting: the weekly
+// reconcile walks the whole live board (~86k rows), and that many point queries
+// costs more than the few MB this holds — well inside the job's 384Mi limit.
+func (d *DB) KnownUUIDs(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := d.QueryContext(ctx, `SELECT uuid FROM job`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]struct{})
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out[u] = struct{}{}
+	}
+	return out, rows.Err()
 }
 
 // QueryWatermark returns the max posting_date in job (NULL on first run).
