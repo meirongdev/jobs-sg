@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -238,6 +239,148 @@ func TestReconcileClosesAfterTwoMisses(t *testing.T) {
 	}
 	if closed != 1 {
 		t.Errorf("closed rows for b = %d, want 1", closed)
+	}
+}
+
+// The weekly reconcile walks the whole live board, so archiving what it already
+// holds would multiply the archive's yearly growth by ~5 against a PVC sized for
+// five years (docs/03 §3). It archives only what it has never stored.
+func TestReconcileArchivesOnlyPostingsItHasNotStored(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+
+	rt := &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01T00:00:00Z"), sweJob("b", "2026-08-01T00:00:00Z")}}, total: 2}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: func() time.Time { return now }, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if got := countArchiveRecords(t, dir); got != 2 {
+		t.Fatalf("after baseline: archived records = %d, want 2", got)
+	}
+
+	// reconcile re-sights a and b, and finds c for the first time
+	rt2 := &pageRT{pages: [][]mcf.Job{{
+		sweJob("a", "2026-08-01T00:00:00Z"),
+		sweJob("b", "2026-08-01T00:00:00Z"),
+		sweJob("c", "2026-08-01T00:00:00Z"),
+	}}, total: 3}
+	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: func() time.Time { return now }, Delay: 0, Reconcile: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Seen != 1 {
+		t.Errorf("archived = %d, want 1 (only the newly discovered c)", res.Seen)
+	}
+	if got := countArchiveRecords(t, dir); got != 3 {
+		t.Errorf("archived records = %d, want 3 (2 from baseline + c); re-archiving the board is what fills the PVC", got)
+	}
+	if res.New != 1 {
+		t.Errorf("new = %d, want 1 (c)", res.New)
+	}
+	// c must carry a real archive pointer, or enrich can never read its
+	// description back and it sits in the backlog forever
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var rawPath string
+	if err := db.QueryRowContext(ctx, "SELECT raw_path FROM job WHERE uuid='c'").Scan(&rawPath); err != nil {
+		t.Fatal(err)
+	}
+	if rawPath == "" {
+		t.Errorf("c raw_path is empty; a posting first stored by the reconcile still needs its own archived copy")
+	}
+}
+
+// A reconcile that archives nothing for a posting must not blank the pointer to
+// the copy an earlier run archived: raw_path is how enrich reads descriptions
+// back, so wiping it strands every re-sighted posting in the enrich backlog.
+func TestReconcileKeepsRawPathItDidNotRewrite(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+
+	rt := &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01T00:00:00Z")}}, total: 1}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: func() time.Time { return now }, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+	readRawPath := func() string {
+		t.Helper()
+		db, err := store.Open(dir+"/jobs.db", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var p string
+		if err := db.QueryRowContext(ctx, "SELECT raw_path FROM job WHERE uuid='a'").Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	before := readRawPath()
+	if before == "" {
+		t.Fatal("baseline stored an empty raw_path")
+	}
+
+	rt2 := &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01T00:00:00Z")}}, total: 1}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: func() time.Time { return now }, Delay: 0, Reconcile: true}); err != nil {
+		t.Fatal(err)
+	}
+	if after := readRawPath(); after != before {
+		t.Errorf("raw_path after reconcile = %q, want %q unchanged", after, before)
+	}
+}
+
+// A posting that comes back after being closed must reopen. The store-level
+// lifecycle test cannot stand in for this one: reopen only matters if the path
+// ingest actually walks performs it, and for a while it did not — the only code
+// that cleared closed_at was a store helper no caller reached.
+func TestReconcileReopensReturningJob(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+	both := func() *pageRT {
+		return &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01T00:00:00Z"), sweJob("b", "2026-08-01T00:00:00Z")}}, total: 2}
+	}
+	onlyA := func() *pageRT {
+		return &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-08-01T00:00:00Z")}}, total: 1}
+	}
+	run := func(rt *pageRT, reconcile bool) Result {
+		t.Helper()
+		res, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: func() time.Time { return now }, Delay: 0, Reconcile: reconcile})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+
+	run(both(), false) // baseline: a and b open
+	run(onlyA(), true) // b missed once
+	if res := run(onlyA(), true); res.Closed != 1 {
+		t.Fatalf("closed = %d, want 1 (b after two misses)", res.Closed)
+	}
+
+	// b is back on the board
+	res := run(both(), true)
+	if res.New != 0 {
+		t.Errorf("new = %d, want 0 (a revived posting is not new demand)", res.New)
+	}
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var closedAt sql.NullString
+	var miss int
+	if err := db.QueryRowContext(ctx, "SELECT closed_at, miss_count FROM job WHERE uuid='b'").Scan(&closedAt, &miss); err != nil {
+		t.Fatal(err)
+	}
+	if closedAt.Valid {
+		t.Errorf("b closed_at = %q, want NULL (reopened)", closedAt.String)
+	}
+	if miss != 0 {
+		t.Errorf("b miss_count = %d, want 0 after reopen", miss)
 	}
 }
 

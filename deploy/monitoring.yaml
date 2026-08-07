@@ -26,12 +26,17 @@ spec:
   groups:
     - name: jobs-sg
       rules:
+        # Both ingest kinds count as a fresh crawl. The Sunday run records itself
+        # as full_reconcile, not incremental, so the incremental series is
+        # legitimately 48h stale every Monday — matching on it alone fired this
+        # alert for ~12h every single week, which trains you to ignore the one
+        # alert docs/04 §3.2 calls the most important.
         - alert: JobsSgIngestStale
-          expr: 'time() - jobs_sg_last_success_timestamp_seconds{kind="incremental"} > 36 * 3600'
+          expr: 'min without(kind) (time() - jobs_sg_last_success_timestamp_seconds{kind=~"incremental|full_reconcile"}) > 36 * 3600'
           for: 30m
           labels: {severity: warning}
           annotations:
-            summary: jobs-sg ingest stale >36h — silent failure risk
+            summary: jobs-sg ingest stale >36h (no incremental or reconcile succeeded) — silent failure risk
         - alert: JobsSgReconcileStale
           expr: 'time() - jobs_sg_last_success_timestamp_seconds{kind="full_reconcile"} > 10 * 24 * 3600'
           for: 30m

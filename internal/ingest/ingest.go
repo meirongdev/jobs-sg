@@ -30,12 +30,21 @@ type Config struct {
 	Now              func() time.Time // injectable clock for tests
 }
 
+// slot is what the archive pass decided about one posting: loc is where this
+// run wrote it, empty when the run had no reason to (the reconcile already
+// holds a copy). failed marks an attempted write that errored — those postings
+// must stay out of the DB so it remains rebuildable from the archive.
+type slot struct {
+	loc    string
+	failed bool
+}
+
 // Result summarises a run for ingest_run and callers.
 type Result struct {
 	Kind      string
 	Status    string
 	Pages     int
-	Seen      int
+	Seen      int // postings archived this run (ingest_run.jobs_seen, "Archived" on /ops)
 	New       int
 	Updated   int
 	Closed    int
@@ -137,26 +146,51 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 
 	client := mcf.NewClientWithRT(cfg.BaseURL, cfg.UA, cfg.Limit, maxPages, cfg.Delay, cfg.Transport)
 
+	// The weekly reconcile re-walks the entire live board, so archiving it in
+	// full would write a second copy of ~86k postings every Sunday — ~6.3GB a
+	// year on top of the ~1.5GB the daily increment costs, against a 10Gi PVC
+	// budgeted for five years (docs/03 §3). That is why docs/02 §4.1 scopes
+	// full-object archiving to the daily increment and the first-run baseline.
+	//
+	// Postings the reconcile has never stored are still archived: the archive is
+	// the only non-rebuildable asset, and a posting first discovered here needs
+	// a copy of its own for enrich to read its description back. `known` is nil
+	// on every other kind of run, and a lookup in a nil map skips nothing, so
+	// the increment and the baseline keep archiving everything they fetch.
+	var known map[string]struct{}
+	if isReconcile {
+		k, kerr := db.KnownUUIDs(ctx)
+		if kerr != nil {
+			db.FinishRun(ctx, runID, store.StatusFailed, 0, 0, 0, 0, 0, 0, 0, 1, "")
+			return res, kerr
+		}
+		known = k
+	}
+
 	seen := map[string]bool{}
-	newCount, updatedCount, seenCount := 0, 0, 0
+	newCount, updatedCount, archivedCount := 0, 0, 0
 
 	var scanErr error
 	summary, err := client.EachPage(ctx, func(jobs []mcf.Job, _ int) (bool, error) {
 		// pass 1: archive the whole page first (archive-before-parse)
-		locs := make([]string, len(jobs))
+		slots := make([]slot, len(jobs))
 		for i := range jobs {
+			if _, stored := known[jobs[i].UUID]; stored {
+				continue // archived already by the run that first stored it
+			}
 			loc, aerr := archive.Write(jobs[i])
 			if aerr != nil {
+				slots[i].failed = true
 				res.Errors++
 				slog.Warn("archive write failed", "uuid", jobs[i].UUID, "err", aerr)
 				continue
 			}
-			locs[i] = loc
-			seenCount++
+			slots[i].loc = loc
+			archivedCount++
 		}
 		// pass 2: incremental window stop + candidate upsert
 		for i := range jobs {
-			if locs[i] == "" {
+			if slots[i].failed {
 				continue // archive failed; skip (DB stays rebuildable from archive)
 			}
 			if !isReconcile {
@@ -167,7 +201,7 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 			}
 			r := classifier.Classify(jobs[i])
 			if r.IsCandidate {
-				isNew, uerr := db.UpsertJob(ctx, jobs[i], r, locs[i])
+				isNew, uerr := db.UpsertJob(ctx, jobs[i], r, slots[i].loc)
 				if uerr != nil {
 					res.Errors++
 					slog.Warn("upsert failed", "uuid", jobs[i].UUID, "err", uerr)
@@ -229,16 +263,20 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	res.Pages = summary.Pages
-	res.Seen = seenCount
+	res.Seen = archivedCount
 	res.New = newCount
 	res.Updated = updatedCount
 	res.Status = status
-	if err := db.FinishRun(ctx, runID, status, summary.Pages, seenCount, newCount, updatedCount, res.Closed, 0, 0, res.Errors, res.Watermark); err != nil {
+	if err := db.FinishRun(ctx, runID, status, summary.Pages, archivedCount, newCount, updatedCount, res.Closed, 0, 0, res.Errors, res.Watermark); err != nil {
 		return res, err
 	}
+	// scanned vs archived diverge on a reconcile, which walks the whole board
+	// but archives only what it has never stored — logging both keeps that
+	// visible instead of looking like an archive failure.
 	slog.Info("ingest run finished",
 		"kind", kind, "status", status, "pages", summary.Pages,
-		"seen", seenCount, "new", newCount, "updated", updatedCount,
+		"scanned", summary.Jobs, "archived", archivedCount,
+		"new", newCount, "updated", updatedCount,
 		"closed", res.Closed, "errors", res.Errors, "watermark", res.Watermark)
 	return res, nil
 }
