@@ -310,6 +310,67 @@ func TestOpsIsNotInTheJobSeekerNav(t *testing.T) {
 	}
 }
 
+func TestEveryNavHrefResolvesToARegisteredRoute(t *testing.T) {
+	// A nav entry whose route was never registered renders a live 404 link and
+	// no test would notice: reviewers confirmed an unregistered /salary entry
+	// passed the entire suite. Walk the rendered nav and GET each href.
+	//
+	// Asserting non-404 rather than ==200 on purpose: a page that legitimately
+	// 500s on this thin fixture is a different problem from a missing route.
+	// Note this also happens to catch a method-only mismatch today, but only
+	// because `GET /` is a catch-all subtree whose handler 404s non-root paths;
+	// tightening that registration to `GET /{$}` would let a 405 through here.
+	s := setupWeb(t)
+	body := get(t, s, "/tech").Body.String()
+	open := strings.Index(body, `<nav class="nav">`)
+	if open < 0 {
+		t.Fatal("/tech has no nav block")
+	}
+	end := strings.Index(body[open:], "</nav>")
+	if end < 0 {
+		t.Fatal("/tech nav block is unterminated")
+	}
+	nav := body[open : open+end]
+
+	var hrefs []string
+	for rest := nav; ; {
+		i := strings.Index(rest, `href="`)
+		if i < 0 {
+			break
+		}
+		rest = rest[i+len(`href="`):]
+		j := strings.Index(rest, `"`)
+		if j < 0 {
+			t.Fatalf("unterminated href in nav: %s", nav)
+		}
+		hrefs = append(hrefs, rest[:j])
+		rest = rest[j:]
+	}
+	if len(hrefs) < 3 {
+		t.Fatalf("expected at least 3 nav links, found %d in %s", len(hrefs), nav)
+	}
+	for _, h := range hrefs {
+		// The scanner matches the bare `href="` token anywhere in the nav block,
+		// so a future inline SVG icon (xlink:href="#ico-…") would feed a fragment
+		// to httptest.NewRequest, which panics — and a panic here aborts the whole
+		// package binary, silently skipping every test declared after this one.
+		// Fail attributably instead.
+		// "//host" is path-shaped enough to pass a bare HasPrefix check, but a
+		// browser reads it as an absolute URL on another origin, and ServeMux
+		// answers it with a 307 rather than the 404 this test looks for — so a
+		// doubled slash from a copy-paste would render an off-site nav link with
+		// the suite green. navItems is a compile-time literal, so this is a typo
+		// guard, not a security boundary.
+		if !strings.HasPrefix(h, "/") || strings.HasPrefix(h, "//") {
+			t.Errorf("extracted a non-path href %q — the nav markup changed shape, check the scanner", h)
+			continue
+		}
+		if code := get(t, s, h).Code; code == http.StatusNotFound {
+			t.Errorf("nav links %s, which is not a registered route (404)", h)
+		}
+	}
+}
+
 func TestRedirectTargetDoesNotAccumulateAcrossRequests(t *testing.T) {
 	// get() rebuilds the mux per call, resetting redirectTo's closure — which
 	// is precisely why it can never catch the accumulation bug the closure's

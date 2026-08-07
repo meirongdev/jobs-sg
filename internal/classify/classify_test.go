@@ -135,3 +135,58 @@ func TestCompanyTypeRules(t *testing.T) {
 		}
 	}
 }
+
+// TestSeniorityLevelsIsTheRankingsSingleSource pins that the exported
+// vocabulary and the internal ranking cannot disagree: /pay renders rows in
+// SeniorityLevels order and relies on it matching the ranking classify uses
+// when a title and a stated experience conflict.
+func TestSeniorityLevelsIsTheRankingsSingleSource(t *testing.T) {
+	levels := SeniorityLevels()
+	if len(levels) != 7 {
+		t.Fatalf("levels = %v, want 7 entries", levels)
+	}
+	for i, l := range levels {
+		if got := seniorityRank(l); got != i {
+			t.Errorf("seniorityRank(%q) = %d, want %d (its index)", l, got, i)
+		}
+	}
+	if got := seniorityRank("Nonexistent"); got != -1 {
+		t.Errorf("unknown level rank = %d, want -1", got)
+	}
+	// Mutating the returned slice must not corrupt the package's own order.
+	levels[0] = "Tampered"
+	if SeniorityLevels()[0] != "Intern" {
+		t.Error("SeniorityLevels must hand back a copy")
+	}
+}
+
+// TestSeniorityRankBreaksLevelVersusYearsTies pins the one branch that reads
+// seniorityRank: when the title carries no seniority keyword and the position
+// level disagrees with the stated experience, the more senior of the two wins.
+// The pre-existing tests miss this — one returns before the rank is consulted,
+// the other compares "Mid" against itself — and since the ranking now derives
+// from seniorityLevels' order rather than a hardcoded switch, a reordered slice
+// would silently flip these outcomes.
+func TestSeniorityRankBreaksLevelVersusYearsTies(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		level string
+		years int
+		want  string
+	}{
+		// level-derived beats years-derived
+		{"manager level outranks junior years", "Manager", 1, "Manager"},
+		{"intern level loses to senior years", "Intern", 8, "Senior"},
+		// years-derived beats level-derived
+		{"professional level loses to senior years", "Professional", 7, "Senior"},
+		{"entry level loses to mid years", "Fresh/entry level", 3, "Mid"},
+		// equal ranks keep the level-derived value (the >= arm)
+		{"self tie keeps the level value", "Professional", 3, "Mid"},
+	} {
+		// A title with no seniority keyword, so the rank comparison is reached.
+		if got := Seniority("Software Engineer", tc.level, tc.years); got != tc.want {
+			t.Errorf("%s: Seniority(level=%q, years=%d) = %q, want %q",
+				tc.name, tc.level, tc.years, got, tc.want)
+		}
+	}
+}

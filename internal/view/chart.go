@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"html/template"
+	"strconv"
 	"strings"
 
 	"github.com/meirongdev/jobs-sg/internal/metric"
@@ -16,8 +17,24 @@ func TopN(kvs []metric.KV, n int) []metric.KV {
 	return kvs
 }
 
-// Bar draws a horizontal bar chart of up to maxBars entries.
+// Bar draws a horizontal bar chart of up to maxBars entries, labelling values
+// as plain counts.
 func Bar(kvs []metric.KV, maxBars int) template.HTML {
+	return bar(kvs, maxBars, "bar chart", func(v float64) string { return strconv.Itoa(int(v)) })
+}
+
+// BarMoney is Bar for monthly salaries. Bar's bare integer labels are right for
+// counts, but a "8700" sitting above a table that reads "S$8,700" invites the
+// reader to think the two are different measurements — the mislabeled-unit
+// failure this project has already shipped once.
+func BarMoney(kvs []metric.KV, maxBars int) template.HTML {
+	return bar(kvs, maxBars, "monthly salary", Money)
+}
+
+// bar is the shared rendering behind Bar and BarMoney: a horizontal bar chart
+// of up to maxBars entries, naming its unit in the aria-label and formatting
+// each value with label.
+func bar(kvs []metric.KV, maxBars int, unit string, label func(float64) string) template.HTML {
 	if len(kvs) == 0 {
 		return template.HTML("")
 	}
@@ -37,8 +54,8 @@ func Bar(kvs []metric.KV, maxBars int) template.HTML {
 	// the 11th bar while callers ask for 15. max-width pins the chart to its
 	// viewBox width; stretched to the full column it scales the 12px type up.
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`<svg viewBox="0 0 520 %d" style="max-width:520px" xmlns="http://www.w3.org/2000/svg" class="chart" role="img" aria-label="bar chart">`,
-		10+len(kvs)*(barH+gap)))
+	b.WriteString(fmt.Sprintf(`<svg viewBox="0 0 520 %d" style="max-width:520px" xmlns="http://www.w3.org/2000/svg" class="chart" role="img" aria-label="%s">`,
+		10+len(kvs)*(barH+gap), unit))
 	y := 10
 	for _, kv := range kvs {
 		// 340 not 400: the value label sits after the bar and rendered past the
@@ -46,7 +63,7 @@ func Bar(kvs []metric.KV, maxBars int) template.HTML {
 		w := 4 + int(340*(kv.Value/max))
 		b.WriteString(fmt.Sprintf(`<text x="2" y="%d" class="lab">%s</text>`, y+barH-6, template.HTMLEscapeString(kv.Key)))
 		b.WriteString(fmt.Sprintf(`<rect x="120" y="%d" width="%d" height="%d" rx="2" fill="#2563eb"/>`, y, w, barH))
-		b.WriteString(fmt.Sprintf(`<text x="%d" y="%d" class="val">%d</text>`, 126+w, y+barH-6, int(kv.Value)))
+		b.WriteString(fmt.Sprintf(`<text x="%d" y="%d" class="val">%s</text>`, 126+w, y+barH-6, label(kv.Value)))
 		y += barH + gap
 	}
 	b.WriteString(`</svg>`)

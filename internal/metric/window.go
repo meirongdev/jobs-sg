@@ -82,3 +82,11 @@ func Rolling(now time.Time, days int) Window {
 	end := Day(now).End
 	return Window{Start: end.In(SGT).AddDate(0, 0, -days).UTC(), End: end}
 }
+
+// RangeLabel describes the window as inclusive SGT calendar dates, for page
+// headers. End is exclusive, so the last named day is End − 1 day.
+func (w Window) RangeLabel() string {
+	first := w.Start.In(SGT).Format("2006-01-02")
+	last := w.End.In(SGT).AddDate(0, 0, -1).Format("2006-01-02")
+	return first + " → " + last
+}

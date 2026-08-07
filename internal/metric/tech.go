@@ -29,23 +29,29 @@ type TechStat struct {
 
 // TechReport is the /tech page model.
 type TechReport struct {
-	Week             string     // reported ISO week, e.g. "2026-W32"
-	Denom            int        // enriched SWE postings in that week (the share denominator)
-	Ranked           []TechStat // by Count desc, capped at RankedTechLimit
-	Rising           []TechStat // by MomentumPP desc, unsuppressed only
-	Falling          []TechStat // by MomentumPP asc, unsuppressed only
-	MomentumEligible int        // ranked techs clearing both momentum gates (counted before the display cap)
-	MomentumFloor    int        // MinTechCountForMomentum, surfaced so the page can state the bar it applies
-	MedianAll        float64    // rolling-90d median monthly salary, the premium baseline
-	SalaryN          int        // disclosed monthly salaries behind MedianAll
-	SalaryTotal      int        // every SWE posting in the same window — the transparency denominator
-	History          Coverage   // how many of the 5 momentum windows had data
+	Week             string       // reported ISO week, e.g. "2026-W32"
+	Denom            int          // enriched SWE postings in that week (the share denominator)
+	Ranked           []TechStat   // by Count desc, capped at RankedTechLimit
+	Rising           []TechStat   // by MomentumPP desc, unsuppressed only
+	Falling          []TechStat   // by MomentumPP asc, unsuppressed only
+	MomentumEligible int          // ranked techs clearing both momentum gates (counted before the display cap)
+	MomentumFloor    int          // MinTechCountForMomentum, surfaced so the page can state the bar it applies
+	MedianAll        float64      // rolling-90d median monthly salary, the premium baseline
+	Salary           Transparency // disclosed vs all postings behind MedianAll
+	History          Coverage     // how many of the 5 momentum windows had data
 	Lens             Lens
 }
 
-// swePosted is the shared predicate: SWE postings whose posting_date falls in
-// the window. Callers append Lens.Where(), which qualifies columns with `j.`.
-const swePosted = `FROM job j WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`
+// sweFrom and sweWhere are the two halves of "a reportable SWE posting in a
+// window", split so a query needing a JOIN can put one between them. swePosted
+// is the no-join composition. Every query that selects SWE postings must build
+// from these rather than retyping the predicate: A-2b adds closed_at filtering
+// here, and a hand-inlined copy would silently miss it.
+//
+// Callers append Lens.Where(), which qualifies columns with `j.`.
+const sweFrom = `FROM job j`
+const sweWhere = `WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`
+const swePosted = sweFrom + ` ` + sweWhere
 
 // enrichedPredicate marks a posting the enrichment pipeline has finished with.
 // enrich_done matters on its own: a posting whose extraction found nothing has
@@ -135,9 +141,8 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 	if err != nil {
 		return nil, err
 	}
-	r.SalaryN = len(allSalaries)
 	r.MedianAll = Percentile(allSalaries, 0.5)
-	if r.SalaryTotal, err = sweCount(ctx, db, roll, lens); err != nil {
+	if r.Salary, err = windowTransparency(ctx, db, roll, lens); err != nil {
 		return nil, err
 	}
 
@@ -182,8 +187,8 @@ func enrichedCount(ctx context.Context, db *store.DB, w Window, lens Lens) (int,
 func techCounts(ctx context.Context, db *store.DB, w Window, lens Lens) (map[string]int, map[string]string, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT t.tech_slug, min(t.tech_kind), count(DISTINCT j.uuid)
-		FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
-		WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`+lens.Where()+`
+		`+sweFrom+` JOIN job_tech t ON t.job_uuid=j.uuid
+		`+sweWhere+lens.Where()+`
 		GROUP BY t.tech_slug`, w.Args()...)
 	if err != nil {
 		return nil, nil, err
@@ -242,11 +247,19 @@ func momentumBoards(ranked []TechStat) (rising, falling []TechStat) {
 	return rising, falling
 }
 
-// disclosedSalary limits every salary figure to publicly advertised monthly
-// ranges. The share of postings that disclose at all is itself a headline
+// salaryMidpoint is the advertised range's midpoint — the single value every
+// salary statistic in this package is computed over.
+const salaryMidpoint = `(j.salary_min+j.salary_max)/2.0`
+
+// disclosedSalaryPredicate limits salary figures to publicly advertised
+// monthly ranges. disclosedSalary is its WHERE-appendable form; both come from
+// one definition so a change to what counts as disclosed cannot land in only
+// one of them. The share of postings that disclose at all is itself a headline
 // number (spec §3.3) — these medians describe only that subset.
-const disclosedSalary = `AND j.salary_hidden=0 AND j.salary_type='Monthly'
+const disclosedSalaryPredicate = `j.salary_hidden=0 AND j.salary_type='Monthly'
 	AND j.salary_min IS NOT NULL AND j.salary_max IS NOT NULL`
+
+const disclosedSalary = `AND ` + disclosedSalaryPredicate
 
 // salarySample returns the ascending midpoint salaries in the window, either
 // overall (slug == "") or for postings mentioning one technology.
@@ -255,13 +268,12 @@ const disclosedSalary = `AND j.salary_hidden=0 AND j.salary_type='Monthly'
 // carrying the technology from both the rule and LLM layers has two job_tech
 // rows, and counting it twice would skew the median toward it.
 func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug string) ([]float64, error) {
-	q := `SELECT (j.salary_min+j.salary_max)/2.0 ` + swePosted + lens.Where() + ` ` + disclosedSalary + ` ORDER BY 1`
+	q := `SELECT ` + salaryMidpoint + ` ` + swePosted + lens.Where() + ` ` + disclosedSalary + ` ORDER BY 1`
 	args := w.Args()
 	if slug != "" {
-		q = `SELECT min((j.salary_min+j.salary_max)/2.0)
-			FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
-			WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?` +
-			lens.Where() + ` ` + disclosedSalary + ` AND t.tech_slug = ?
+		q = `SELECT min(` + salaryMidpoint + `)
+			` + sweFrom + ` JOIN job_tech t ON t.job_uuid=j.uuid
+			` + sweWhere + lens.Where() + ` ` + disclosedSalary + ` AND t.tech_slug = ?
 			GROUP BY j.uuid ORDER BY 1`
 		// lens.Where() contributes no bind placeholders by construction (its
 		// fragments are canned literals), so appending slug here keeps positional
@@ -284,24 +296,6 @@ func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug s
 	return out, rows.Err()
 }
 
-// sweCount counts every SWE posting in the window under the lens, disclosed
-// salary or not — the denominator of the salary transparency rate.
-func sweCount(ctx context.Context, db *store.DB, w Window, lens Lens) (int, error) {
-	var n int
-	err := db.QueryRowContext(ctx, `SELECT count(*) `+swePosted+lens.Where(), w.Args()...).Scan(&n)
-	return n, err
-}
-
-// TransparencyPct is the share of SWE postings in the rolling window that
-// disclose a monthly salary. It is printed beside every salary figure so a
-// median over the disclosing subset cannot read as a market-wide number.
-func (r *TechReport) TransparencyPct() float64 {
-	if r.SalaryTotal == 0 {
-		return 0
-	}
-	return float64(r.SalaryN) / float64(r.SalaryTotal)
-}
-
 // entryShare returns slug -> share of postings mentioning it that are
 // entry-level. It answers "what do they actually ask a junior for", which the
 // overall ranking cannot. The window is the caller's choice; /tech passes the
@@ -310,8 +304,8 @@ func entryShare(ctx context.Context, db *store.DB, w Window, lens Lens) (map[str
 	rows, err := db.QueryContext(ctx, `
 		SELECT t.tech_slug, count(DISTINCT j.uuid),
 		       count(DISTINCT CASE WHEN `+EntryPredicate+` THEN j.uuid END)
-		FROM job j JOIN job_tech t ON t.job_uuid=j.uuid
-		WHERE j.is_swe=1 AND j.posting_date >= ? AND j.posting_date < ?`+lens.Where()+`
+		`+sweFrom+` JOIN job_tech t ON t.job_uuid=j.uuid
+		`+sweWhere+lens.Where()+`
 		GROUP BY t.tech_slug`, w.Args()...)
 	if err != nil {
 		return nil, err

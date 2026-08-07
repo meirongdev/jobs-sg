@@ -16,6 +16,7 @@ var techPage = template.Must(template.New("tech").Funcs(template.FuncMap{
 	"spct":  SignedPct,
 	"money": Money,
 	"sup":   Suppressed,
+	"nav":   Nav,
 	"lens":  lensNav,
 	"kvs":   techBars,
 }).Parse(techTmpl))
@@ -85,7 +86,7 @@ const techTmpl = `<!DOCTYPE html>
 <body><div class="wrap">
 <h1>Tech Demand</h1>
 <div class="sub">What is worth learning · reported week {{.Week}} (last completed ISO week, SGT){{if .Lens.Label}} · {{.Lens.Label}}{{end}}</div>
-<nav class="nav"><a href="/">Weekly report</a><a class="on" href="/tech">Tech</a></nav>
+{{nav "/tech"}}
 {{lens "/tech" .Lens}}
 
 <h2>1. Demand ranking</h2>
@@ -109,7 +110,7 @@ const techTmpl = `<!DOCTYPE html>
 {{end}}
 
 <h2>3. Salary premium and entry-friendliness</h2>
-<p class="note">Premium compares the median advertised monthly salary of postings mentioning a technology against the overall median, over the trailing 90 days. Baseline: <strong>{{money .MedianAll}}</strong> from {{.SalaryN}} of {{.SalaryTotal}} SWE postings — only {{pct .TransparencyPct}} disclose a monthly salary, and every figure here describes that disclosing subset. Entry-friendly is computed over the same 90-day window. Premium mixes seniority in (senior roles name more infrastructure); pick an experience band above to compare within one. Entry-friendly = the share of postings mentioning the technology that ask for at most 2 years' experience, or are Intern/Junior roles with no stated requirement. The table lists the top 30 technologies by postings.</p>
+<p class="note">Premium compares the median advertised monthly salary of postings mentioning a technology against the overall median, over the trailing 90 days. Baseline: <strong>{{money .MedianAll}}</strong> from {{.Salary.Disclosed}} of {{.Salary.Total}} SWE postings — only {{pct .Salary.Pct}} disclose a monthly salary, and every figure here describes that disclosing subset. Entry-friendly is computed over the same 90-day window. Premium mixes seniority in (senior roles name more infrastructure); pick an experience band above to compare within one. Entry-friendly = the share of postings mentioning the technology that ask for at most 2 years' experience, or are Intern/Junior roles with no stated requirement. The table lists the top 30 technologies by postings.</p>
 {{if .Ranked}}
 <table>
 <tr><th>Technology</th><th>Kind</th><th>Postings</th><th>Share</th><th>Salary premium</th><th>Entry-friendly</th></tr>

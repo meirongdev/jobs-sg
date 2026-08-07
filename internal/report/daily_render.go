@@ -28,6 +28,7 @@ func newDailyTemplate(name string) *template.Template {
 		"kinds":  kindBadges,
 		"dur":    humanDuration,
 		"runAgo": runAgo,
+		"nav":    view.Nav,
 	})
 }
 
@@ -127,6 +128,11 @@ const dailyCSS = `
 .scroll table{min-width:840px}table.detail td,table.detail th{padding:5px 8px;font-size:14px;white-space:nowrap}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 tr.idle td{color:var(--mut)}tr:hover td{background:#1e293b}
+/* The sticky first column in view.SuppressedCSS sets its own opaque background
+   (0,2,2), which outranks the row-hover rule above (0,1,2). Restore hover on
+   that column with a matching-specificity rule; it lives here rather than
+   beside the sticky rule because only these pages have row hover at all. */
+tr:hover td:first-child{background:#1e293b}
 td a{color:#60a5fa;text-decoration:none}td a:hover{text-decoration:underline}
 .swe{color:#6ee7b7;font-weight:600}
 .pager{margin-top:18px;font-size:14px}.pager a{color:#60a5fa;text-decoration:none;margin-right:14px}
@@ -147,7 +153,7 @@ const dailyTmpl = `<!DOCTYPE html>
 <body><div class="wrap wide">
 <h1>Daily Crawl Statistics</h1>
 <div class="sub">{{.DaysLabel}} · {{.From}} → {{.To}} (SGT) · rendered {{.Generated}}</div>
-<nav class="nav"><a href="/">Weekly report</a><a href="/tech">Tech</a></nav>
+{{nav ""}}
 
 <div class="cards">
   <div class="card"><div class="n">{{.NewSWE7d}}</div><div class="k">New SWE postings (7d)</div></div>
@@ -201,7 +207,7 @@ const dayTmpl = `<!DOCTYPE html>
 <body><div class="wrap wide">
 <h1>Crawl Detail — {{.Date}}</h1>
 <div class="sub">One SGT calendar day (02:15 SGT ingest, 03:10 SGT enrich)</div>
-<nav class="nav"><a href="/">Weekly report</a><a href="/tech">Tech</a></nav>
+{{nav ""}}
 
 <div class="cards">
   <div class="card"><div class="n">{{.Summary.Archived}}</div><div class="k">Postings archived</div></div>

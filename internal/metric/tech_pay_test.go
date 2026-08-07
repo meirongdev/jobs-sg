@@ -18,17 +18,17 @@ func TestPremiumBaselineIsARealAdvertisedSalary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.SalaryN == 0 || r.MedianAll == 0 {
-		t.Fatalf("no disclosed salaries behind the baseline: n=%d median=%v", r.SalaryN, r.MedianAll)
+	if r.Salary.Disclosed == 0 || r.MedianAll == 0 {
+		t.Fatalf("no disclosed salaries behind the baseline: n=%d median=%v", r.Salary.Disclosed, r.MedianAll)
 	}
-	if r.SalaryTotal < r.SalaryN || r.SalaryTotal == 0 {
-		t.Errorf("transparency denominator %d must cover the disclosed sample %d", r.SalaryTotal, r.SalaryN)
+	if r.Salary.Total < r.Salary.Disclosed || r.Salary.Total == 0 {
+		t.Errorf("transparency denominator %d must cover the disclosed sample %d", r.Salary.Total, r.Salary.Disclosed)
 	}
-	if p := r.TransparencyPct(); p <= 0 || p > 1 {
+	if p := r.Salary.Pct(); p <= 0 || p > 1 {
 		t.Errorf("transparency rate = %v, want (0,1]", p)
 	}
-	if got, want := r.TransparencyPct(), float64(r.SalaryN)/float64(r.SalaryTotal); got != want {
-		t.Errorf("TransparencyPct = %v, want SalaryN/SalaryTotal = %v", got, want)
+	if got, want := r.Salary.Pct(), float64(r.Salary.Disclosed)/float64(r.Salary.Total); got != want {
+		t.Errorf("Salary.Pct() = %v, want Salary.Disclosed/Salary.Total = %v", got, want)
 	}
 	var n int
 	if err := db.QueryRowContext(ctx, `
@@ -40,6 +40,33 @@ func TestPremiumBaselineIsARealAdvertisedSalary(t *testing.T) {
 	}
 	if n == 0 {
 		t.Errorf("median %v was never advertised by any posting", r.MedianAll)
+	}
+}
+
+func TestTechTransparencyIsOneAtomicPair(t *testing.T) {
+	// Disclosed and Total come from a single row now, so Disclosed > Total is
+	// unrepresentable rather than merely unobserved. Also pin that switching to
+	// the atomic query did not change the disclosed count: it must still equal
+	// the number of rows the salary sample returns.
+	ctx := context.Background()
+	db := seedFixture(t)
+	r, err := TechReportFor(ctx, db, fixtureNow, Lens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Salary.Disclosed > r.Salary.Total {
+		t.Errorf("disclosed %d exceeds total %d", r.Salary.Disclosed, r.Salary.Total)
+	}
+	if r.Salary.Total == 0 {
+		t.Fatal("fixture window has no SWE postings")
+	}
+	var sample int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) `+swePosted+` `+disclosedSalary, Rolling(fixtureNow, RollingDays).Args()...).Scan(&sample); err != nil {
+		t.Fatal(err)
+	}
+	if r.Salary.Disclosed != sample {
+		t.Errorf("Disclosed = %d, want %d (the disclosed-salary sample size)", r.Salary.Disclosed, sample)
 	}
 }
 
@@ -88,15 +115,17 @@ func TestPremiumFollowsTheLens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if senior.SalaryN == 0 {
+	if senior.Salary.Disclosed == 0 {
 		t.Fatal("6+ band has no disclosed salaries in the fixture")
 	}
-	// SalaryN comes straight out of salarySample, so a smaller sample under the
-	// lens is itself the proof that the lens reaches the salary query. Do not
-	// assert the two medians differ — over random fixture salaries that is a
-	// coin flip, and a flaky test is worse than no test.
-	if senior.SalaryN >= all.SalaryN {
-		t.Errorf("lensed salary sample %d must be smaller than %d", senior.SalaryN, all.SalaryN)
+	// Salary.Disclosed is windowTransparency's conditional sum over the same
+	// window and lens, so a smaller count under the lens proves the lens
+	// reaches the disclosure query; the MedianAll check below proves it reaches
+	// salarySample too. Do not assert the two medians differ — over random
+	// fixture salaries that is a coin flip, and a flaky test is worse than
+	// no test.
+	if senior.Salary.Disclosed >= all.Salary.Disclosed {
+		t.Errorf("lensed salary sample %d must be smaller than %d", senior.Salary.Disclosed, all.Salary.Disclosed)
 	}
 	if senior.MedianAll == 0 {
 		t.Error("6+ band median is 0 despite a non-empty sample")

@@ -93,3 +93,12 @@ func TestArgsRenderDateOnlySafeBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestRangeLabelNamesTheInclusiveSGTDays(t *testing.T) {
+	// End is exclusive, so the label's last day is End − 1 day: a 90-day
+	// window ending at today's SGT day end reads through today, not tomorrow.
+	w := Rolling(time.Date(2026, 8, 10, 9, 0, 0, 0, SGT), 90)
+	if got := w.RangeLabel(); got != "2026-05-13 → 2026-08-10" {
+		t.Errorf("RangeLabel = %q, want 2026-05-13 → 2026-08-10", got)
+	}
+}
