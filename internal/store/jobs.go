@@ -26,7 +26,23 @@ import (
 // with "" would strand every one of those postings in the enrich backlog. An
 // INSERT still requires a real path: a posting nobody has archived cannot be
 // enriched, so callers must archive before first storing one.
+// A lock collision here is retried rather than surfaced: it costs the caller a
+// dropped posting, and one dropped posting marks the whole run partial. See
+// retry.go for why busy_timeout cannot cover it.
 func (d *DB) UpsertJob(ctx context.Context, j mcf.Job, res classify.Result, rawPath string) (bool, error) {
+	var isNew bool
+	err := d.retryBusy(ctx, func() error {
+		var err error
+		isNew, err = d.upsertJobOnce(ctx, j, res, rawPath)
+		return err
+	})
+	return isNew, err
+}
+
+// upsertJobOnce is one attempt at UpsertJob's transaction. It is separate so
+// the retry wrapper re-runs the whole transaction, which is the only thing that
+// clears a write-lock collision.
+func (d *DB) upsertJobOnce(ctx context.Context, j mcf.Job, res classify.Result, rawPath string) (bool, error) {
 	now := NowUTC()
 	hash := hashHex(j.Description)
 	fp := fingerprint(j)
@@ -203,7 +219,21 @@ func (d *DB) QueryWatermark(ctx context.Context) (sql.NullString, error) {
 // live market (~86k rows), and the row-at-a-time version spent minutes of the
 // job's deadline on round trips. The temp table is safe because a Tx pins one
 // connection, and a rollback discards it along with everything else.
+// Like UpsertJob this retries a lock collision. It matters more here: this is
+// the reconcile's close pass, and losing it marks the run partial, which is
+// exactly the signal the caller uses to decide the round was not clean.
 func (d *DB) MissAndClose(ctx context.Context, seen map[string]bool, today string) (expired, missed int, err error) {
+	rerr := d.retryBusy(ctx, func() error {
+		var oerr error
+		expired, missed, oerr = d.missAndCloseOnce(ctx, seen, today)
+		return oerr
+	})
+	return expired, missed, rerr
+}
+
+// missAndCloseOnce is one attempt at MissAndClose's transaction. A failed
+// attempt rolls back whole, so re-running it cannot double-count miss_count.
+func (d *DB) missAndCloseOnce(ctx context.Context, seen map[string]bool, today string) (expired, missed int, err error) {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
