@@ -37,7 +37,8 @@ type TechReport struct {
 	MomentumEligible int          // ranked techs clearing both momentum gates (counted before the display cap)
 	MomentumFloor    int          // MinTechCountForMomentum, surfaced so the page can state the bar it applies
 	MedianAll        float64      // rolling-90d median monthly salary, the premium baseline
-	Salary           Transparency // disclosed vs all postings behind MedianAll
+	MedianSample     int          // postings behind MedianAll: the comparable-salary subset, smaller than Salary.Disclosed
+	Salary           Transparency // postings stating pay in any unit, vs every SWE posting in the window
 	History          Coverage     // how many of the 5 momentum windows had data
 	Lens             Lens
 }
@@ -142,6 +143,12 @@ func TechReportFor(ctx context.Context, db *store.DB, now time.Time, lens Lens) 
 		return nil, err
 	}
 	r.MedianAll = Percentile(allSalaries, 0.5)
+	// The median's sample and the transparency rate's numerator are different
+	// sets (comparableSalaryPredicate vs statedSalaryPredicate), so the page
+	// needs both numbers: MedianSample is what MedianAll rests on, r.Salary is
+	// the disclosure rate. Deriving one from the other would restate the
+	// understatement this pair exists to prevent (spec §3.3).
+	r.MedianSample = len(allSalaries)
 	if r.Salary, err = windowTransparency(ctx, db, roll, lens); err != nil {
 		return nil, err
 	}
@@ -251,15 +258,22 @@ func momentumBoards(ranked []TechStat) (rising, falling []TechStat) {
 // salary statistic in this package is computed over.
 const salaryMidpoint = `(j.salary_min+j.salary_max)/2.0`
 
-// disclosedSalaryPredicate limits salary figures to publicly advertised
-// monthly ranges. disclosedSalary is its WHERE-appendable form; both come from
-// one definition so a change to what counts as disclosed cannot land in only
-// one of them. The share of postings that disclose at all is itself a headline
-// number (spec §3.3) — these medians describe only that subset.
-const disclosedSalaryPredicate = `j.salary_hidden=0 AND j.salary_type='Monthly'
+// comparableSalaryPredicate selects the sample every median, percentile and
+// premium in this package is computed over: publicly advertised MONTHLY ranges.
+// It exists so those figures are *comparable* to one another, which is why it
+// pins the unit — a median taken across monthly, annual and hourly pay is a
+// meaningless number. comparableSalary is its WHERE-appendable form; both come
+// from one definition so a change to what counts as comparable cannot land in
+// only one of them.
+//
+// The transparency rate must NOT use this predicate — it counts a stated
+// salary whatever its unit, see statedSalaryPredicate in transparency.go. The
+// share of postings that disclose at all is itself a headline number (spec
+// §3.3); these medians describe only the narrower comparable subset of it.
+const comparableSalaryPredicate = `j.salary_hidden=0 AND j.salary_type='Monthly'
 	AND j.salary_min IS NOT NULL AND j.salary_max IS NOT NULL`
 
-const disclosedSalary = `AND ` + disclosedSalaryPredicate
+const comparableSalary = `AND ` + comparableSalaryPredicate
 
 // salarySample returns the ascending midpoint salaries in the window, either
 // overall (slug == "") or for postings mentioning one technology.
@@ -268,12 +282,12 @@ const disclosedSalary = `AND ` + disclosedSalaryPredicate
 // carrying the technology from both the rule and LLM layers has two job_tech
 // rows, and counting it twice would skew the median toward it.
 func salarySample(ctx context.Context, db *store.DB, w Window, lens Lens, slug string) ([]float64, error) {
-	q := `SELECT ` + salaryMidpoint + ` ` + swePosted + lens.Where() + ` ` + disclosedSalary + ` ORDER BY 1`
+	q := `SELECT ` + salaryMidpoint + ` ` + swePosted + lens.Where() + ` ` + comparableSalary + ` ORDER BY 1`
 	args := w.Args()
 	if slug != "" {
 		q = `SELECT min(` + salaryMidpoint + `)
 			` + sweFrom + ` JOIN job_tech t ON t.job_uuid=j.uuid
-			` + sweWhere + lens.Where() + ` ` + disclosedSalary + ` AND t.tech_slug = ?
+			` + sweWhere + lens.Where() + ` ` + comparableSalary + ` AND t.tech_slug = ?
 			GROUP BY j.uuid ORDER BY 1`
 		// lens.Where() contributes no bind placeholders by construction (its
 		// fragments are canned literals), so appending slug here keeps positional
