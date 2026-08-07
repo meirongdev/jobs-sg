@@ -497,6 +497,8 @@ git add internal/classify/classify.go internal/classify/classify_test.go interna
 git commit -m "refactor(classify,metric): derive seniority order from one slice, add window/lens helpers" -- internal/classify/classify.go internal/classify/classify_test.go internal/metric/window.go internal/metric/window_test.go internal/metric/lens.go internal/metric/lens_test.go
 ```
 
+> 执行记录 2026-08-07：已执行（`857e456`，六个代码块逐字节一致含 U+2212/U+2192）。spec review 揭穿了本节给的行为等价判据偏弱：`seniorityRank` 唯一的调用点是 `Seniority()` 里"职级与年限分歧时按 rank 取大"那一行，而既有两个测试都没真正覆盖它——`TestSeniorityTitleWins` 因标题命中提前返回、根本不调用 `seniorityRank`；`TestSeniorityVoteNoTitle` 虽走到比较但 `l == y == "Mid"` 是自反平局，任何确定性排名都能过。review 自行构造 7 个真实分歧场景验证了新旧一致，并以"两种实现都是对同一字面量集合做 `==` 比较"给出了全输入域的论证。该覆盖缺口以补充提交关闭（见下）——它在重构前就存在，但重构后该分支的正确性从此依赖 `seniorityLevels` 的切片顺序，值得钉住。
+
 ---
 
 ## Task 4: `/pay` 聚合 —— 分位数网格、经验阶梯、透明率
@@ -1071,6 +1073,8 @@ git add internal/metric/pay.go internal/metric/pay_test.go
 git commit -m "feat(metric): add pay percentile grid, experience ladder and transparency" -- internal/metric/pay.go internal/metric/pay_test.go
 ```
 
+> 执行记录 2026-08-07：已执行（`82b4e09`，46 测试全绿，fixture 在每处断言均如预测，无 BLOCKED）。两点记录：①本节 `PayReport` 结构体的字面文本不是 gofmt-clean——我加 `RoleTotals`（较长字段名）时没重排其余字段的尾注释列，实现按 `gofmt -w` 补齐（纯空白，且 Step 4 的门槛要求 `gofmt -l` 为空）；②排序纪律实际有**四**处样本装配需要顾及，比本节注释点名的三处多一个：`Overall` 是在 `cells` map 上双层遍历累积的，Go 的 map 迭代顺序随机，是四处里最无序的——代码里的 `sort.Float64s(overall)` 已兜住，但注释应点明这一处而非只说"拼接后重排"。
+
 ---
 
 ## Task 5: `/pay` 页面与路由
@@ -1334,6 +1338,8 @@ Expected: PASS
 git add internal/view/pay.go internal/view/css.go internal/web/pay.go internal/web/server.go internal/web/pay_test.go
 git commit -m "feat(web): serve /pay with the percentile grid, ladder and disclosure rates" -- internal/view/pay.go internal/view/css.go internal/web/pay.go internal/web/server.go internal/web/pay_test.go
 ```
+
+> 执行记录 2026-08-07：实现者在完成三个新文件（已自证与本节代码逐字节一致）并改好 css/server 之后、动手做人工渲染检查时被账户级会话上限中断，未提交。协调者接手核验：三个文件对 plan 代码块 `diff` 均 IDENTICAL（确认测试文件没留探针——中断发生在动手前）、css 恰两行、server 恰一行、全仓 10 包绿、vet/gofmt 干净，遂按本节 pathspec 提交（`3a07ff4`）。同批清理了一个死掉的 reviewer 遗留的 scratch worktree。
 
 ---
 
