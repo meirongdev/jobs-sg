@@ -159,3 +159,34 @@ func TestSeniorityLevelsIsTheRankingsSingleSource(t *testing.T) {
 		t.Error("SeniorityLevels must hand back a copy")
 	}
 }
+
+// TestSeniorityRankBreaksLevelVersusYearsTies pins the one branch that reads
+// seniorityRank: when the title carries no seniority keyword and the position
+// level disagrees with the stated experience, the more senior of the two wins.
+// The pre-existing tests miss this — one returns before the rank is consulted,
+// the other compares "Mid" against itself — and since the ranking now derives
+// from seniorityLevels' order rather than a hardcoded switch, a reordered slice
+// would silently flip these outcomes.
+func TestSeniorityRankBreaksLevelVersusYearsTies(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		level string
+		years int
+		want  string
+	}{
+		// level-derived beats years-derived
+		{"manager level outranks junior years", "Manager", 1, "Manager"},
+		{"intern level loses to senior years", "Intern", 8, "Senior"},
+		// years-derived beats level-derived
+		{"professional level loses to senior years", "Professional", 7, "Senior"},
+		{"entry level loses to mid years", "Fresh/entry level", 3, "Mid"},
+		// equal ranks keep the level-derived value (the >= arm)
+		{"self tie keeps the level value", "Professional", 3, "Mid"},
+	} {
+		// A title with no seniority keyword, so the rank comparison is reached.
+		if got := Seniority("Software Engineer", tc.level, tc.years); got != tc.want {
+			t.Errorf("%s: Seniority(level=%q, years=%d) = %q, want %q",
+				tc.name, tc.level, tc.years, got, tc.want)
+		}
+	}
+}
