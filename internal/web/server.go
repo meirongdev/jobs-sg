@@ -55,6 +55,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /", s.handleMarket)
 	mux.HandleFunc("GET /tech", s.handleTech)
 	mux.HandleFunc("GET /pay", s.handlePay)
+	mux.HandleFunc("GET /companies", s.handleCompanies)
 	// The weekly report keeps a permanent home, and /reports is where the
 	// archive is reachable now that / is the live snapshot.
 	mux.HandleFunc("GET /reports", s.handleLatestReport)

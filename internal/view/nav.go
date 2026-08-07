@@ -20,6 +20,7 @@ var navItems = []navItem{
 	{"/", "Market"},
 	{"/tech", "Tech"},
 	{"/pay", "Pay"},
+	{"/companies", "Employers"},
 	{"/reports", "Weekly report"},
 }
 

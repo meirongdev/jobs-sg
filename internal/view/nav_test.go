@@ -51,7 +51,7 @@ func TestNavRendersInReadingOrder(t *testing.T) {
 	// consciously decides where it belongs.
 	// "/" is the live market snapshot; the weekly report sits last because it
 	// is the archive, not the thing a job seeker opens first.
-	want := []string{"/", "/tech", "/pay", "/reports"}
+	want := []string{"/", "/tech", "/pay", "/companies", "/reports"}
 	if len(want) != len(navItems) {
 		// The remedy is spelled out here, not only in the doc comment above:
 		// someone fixing a red run from the failure text alone would otherwise
