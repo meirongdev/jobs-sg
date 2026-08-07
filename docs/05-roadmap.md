@@ -6,14 +6,19 @@
 
 ## Phase 0 — 打地基（0.5 天）：先测量再定义
 
-- [ ] 一次性脚本（本机跑，不进集群）抽样 **2,000 条 IT 职位**，导出：
-      `ssoc_code` 频次分布、`positionLevels` 取值集合、`flexibleWorkArrangements` 填写率、
-      `salary_hidden` 比例、`categories` 分布
+- [x] 抽样与分布导出工具：`go run ./scripts/taxonomyaudit --data-dir ./data`
+      输出 `ssoc_code` 覆盖率（**含未映射码按影响量排序**，以及它们当前被兜底成什么）、
+      `position_level`/`category`/`work_mode`/`employment_type`/`seniority` 分布、
+      `salary_hidden` 与 `min_years_exp` 填写率、未复核的 `unmapped_tech` 词表
 - [ ] 据此**人工核定** `ssoc_taxonomy`（SSOC → role_family，预计 30–50 个码）与 `tech_taxonomy` 种子表
 
 **DoD**：两张映射表落库；SWE 口径可解释、可复现。
 
-> 先于任何生产代码。分类口径是整个系统的地基——口径拍脑袋，后面每周的趋势数字都不可信。
+> 原计划先于任何生产代码，用一次性抓取脚本取样。实际顺序反了过来——先写了代码。
+> 但这让剩下的那半变**更容易**而非更冒险：首次 ingest 之后，"2,000 条 IT 职位样本"就是
+> `jobs.db` 里现成的东西，`scripts/taxonomyaudit` 直接读库，不必再抓一次网。
+> 分类口径仍是整个系统的地基——口径拍脑袋，后面每周的趋势数字都不可信，
+> 所以**首个完整周报对外发布之前必须完成人工核定那一步**。
 
 ## Phase 1 — MVP（1 周）
 
@@ -50,14 +55,15 @@
 > 为了尽快让管线在真实数据上跑起来，下列各项全部推迟。排序即建议的处理顺序。
 > 判据：**不上线就验证不了的排前面；上线后反而变容易的，不该挡在上线之前。**
 
-1. **Phase 0 分类口径核定**（原列在 Phase 0，未做）。`ssoc_taxonomy` 现有 16 条种子，本文档自己估计需要 30–50 条；未映射的 `251*` 码一律回落 `Backend`，其余回落 `Other-IT`，taxonomy 越不全 Backend 兜得越多。
-   **推迟的理由是它上线后变简单**：Phase 0 要的「抽样 2,000 条 IT 职位」正是首次 ingest 落地后 `jobs.db` 与 `raw/` 里现成的东西，不必再写一次性抓取脚本。
-   **风险与兜底**：在核定之前，周报与 `/tech` 的角色分布可能偏斜。可接受，因为 archive-before-parse 使口径可全量重算（docs/01 §4 本就要求口径变更重算历史）。**首个完整周报发布前应先做完这项**。
+1. **Phase 0 人工核定**（工具已就绪，只差判断）。跑 `go run ./scripts/taxonomyaudit --data-dir ./data`，它会按影响量排序列出未映射的 SSOC 码及其当前兜底归类；照着从大到小往 `ssoc_taxonomy` 里加，前几条就能收掉大部分。同一份输出还给出 `unmapped_tech` 词表供 `tech_taxonomy` 扩充。
+   **为什么这步机器代替不了**：SSOC 码到 role_family 是语义判断（"25199 其他软件开发员"该算 Backend 还是 Other-IT），错了整季度的趋势都跟着错。
+   **风险与兜底**：核定之前，周报与 `/tech` 的角色分布可能偏斜。可接受，因为 archive-before-parse 使口径可全量重算（docs/01 §4 本就要求口径变更重算历史）。**首个完整周报发布前应先做完这项**。
 2. ~~**fixture 掺入已下架岗位**~~ —— **已完成**（2026-08-07）。`buildFixtureDB` 里 `closeFixturePostings` 按确定性规则关掉 1/3 的岗位，寿命覆盖 `<7 / 7-14 / 15-30 / 30-60 / 60+` 各档含边界值；其余 2/3 保持在架，右删失因此可见。
 3. ~~**A-2b**~~ —— **已完成**（2026-08-07）。`/` 现算快报页（在架量、周新增、WoW、12 周趋势、方向/资历/工作模式分布、入门岗绝对数）与 `/companies`（持续招聘者按 UEN 归并、类型分布、各家竞争度与透明率、岗位寿命含右删失标注、幽灵岗信号、按方向的竞争度分层）。导航为 Market / Tech / Pay / Employers / Weekly report，周报移到 `/reports`。
 4. ~~**A-2c**~~ —— **已完成**（2026-08-07）。周报按 spec §4.5 重排为 7 节、Data Quality 收为页脚一行；各节数字改由 `internal/metric` 计算（周报与实时页共用一份口径），顺带落地 §3.7 的第 ①②④ 三处口径修正；Telegram 改求职者口播（升温 Top 3、入门岗绝对数、各经验档薪资带、数据新鲜度、周报链接）并从 `cmd/report` 下沉到 `internal/report` 以便测试；`weekly_metric` 新增 `tech_share`/`swe_enriched` 审计行；`pct`/`money`/`topn` 收敛到 `internal/view`。
 5. **Phase B `/jobs`**：前置为验证 MCF 回链格式（spec §6）；另注意描述正文不落库，全文搜索需读归档或加列。
-6. 零散项：`closed_at` 对「过期但仍在挂」的岗位逐周前移（口径待 A-2b 定，spec §3.5 已记）· 五份 SGT 常量待合并 · `jobs_sg_jobs_total` 与 `jobs_sg_unmapped_tech_total` 是 gauge 却带 `_total` 后缀 · `lensNav` 四处 `metric.Lens` 字面量改 copy-and-override（触发条件：加第三个镜头维度）· `employment_type` 与整张 `job_skill` 表零消费 · 日增量路径归档失败已降级 partial，但单条失败仍不重试。
+6. ~~零散项~~ —— 除两条外**均已完成**（2026-08-07）：`closed_at` 逐周前移已修（原来是 `CloseExpired` 漏了候选集门控，不是口径问题）· 五份 SGT 常量已收敛到 `internal/sgt` · 两个 gauge 已去掉 `_total` 后缀 · `lensNav` 已改 copy-and-override。
+   **仍开着**：`employment_type` 与整张 `job_skill` 表零消费（可选增量，不是缺陷）· 日增量归档失败已降级 partial，但单条失败仍不重试。
 
 ## Phase 3 — 持续演进（按需）
 
