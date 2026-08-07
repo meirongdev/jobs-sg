@@ -30,8 +30,20 @@
 - Given API 返回 HTTP 429
 - When 请求该页
 - Then 指数退避重试（2s、4s、8s）
-- And 三次后仍失败则记录 `errors` 但不中断整轮
-- And `ingest_run.errors` 递增、status 仍为 success（单页失败不降级整轮）
+- And 三次后仍失败则停止本轮翻页，但**不使作业失败**（退出码 0，已抓数据全部保留）
+- And `ingest_run.errors` 递增、status 记为 **partial**
+
+> 本条曾写作"status 仍为 success（单页失败不降级整轮）"，与实现不符：`FetchPage`
+> 重试耗尽后返回 error，`EachPage` 随即中止翻页，整轮一直是 partial。修正于
+> 2026-08-07，同批把"漏记职位"一并纳入同一条状态规则（见下）。
+
+### Scenario: 未能完整记录的一轮记为 partial
+- Given 某职位的归档写入失败，或其 upsert 因约束冲突失败
+- When 本轮结束
+- Then `ingest_run.errors` 递增
+- And status 记为 **partial**（该职位既不在归档也不在 DB，而 watermark 会越过它）
+- And 若本轮是对账，则**不执行任何关闭判定**（沿用 success 门控）
+- And 作业退出码仍为 0（fail-open：下一轮成功即自愈，持续失败由 `JobsSgIngestStale` 反映）
 
 ### Scenario: 超过页数熔断阈值标记 partial
 - Given 已连续翻页超过 300 页
