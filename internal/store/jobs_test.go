@@ -105,7 +105,7 @@ func TestReconcileLifecycle(t *testing.T) {
 	today := "2026-10-01"
 	// Round 1 sees a only. b is unseen AND expired -> closes immediately;
 	// c is unseen but not expired -> one miss, no close.
-	expired1, closed1, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today)
+	expired1, closed1, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestReconcileLifecycle(t *testing.T) {
 	}
 
 	// Round 2: c still unseen -> miss_count=2 -> closed
-	_, closed2, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today)
+	_, closed2, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestReconcileLifecycle(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `UPDATE job SET miss_count=5 WHERE uuid='a'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, closed, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today); err != nil || closed != 0 {
+	if _, closed, err := db.MissAndClose(ctx, map[string]bool{"a": true}, today, true); err != nil || closed != 0 {
 		t.Errorf("seen job with stale miss_count: closed = %d (err %v), want 0", closed, err)
 	}
 	var missA int

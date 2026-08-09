@@ -105,6 +105,77 @@ func TestCrawlTimeQueriesUseIndexes(t *testing.T) {
 	}
 }
 
+// The additive migration has to reach a database that already exists, which is
+// the only kind production has. `schema` is CREATE TABLE IF NOT EXISTS, so a
+// column added there alone would land on fresh deployments and quietly miss the
+// live 46MB file — the first write of the new column failing at 02:15 SGT.
+func TestMigrateAddsColumnsToAPreexistingTable(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	// the ingest_run shape as it shipped, without the scan-audit columns
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE ingest_run (
+		  id INTEGER PRIMARY KEY AUTOINCREMENT,
+		  kind TEXT NOT NULL,
+		  started_at TEXT NOT NULL,
+		  ended_at TEXT,
+		  pages_fetched INTEGER DEFAULT 0,
+		  jobs_seen INTEGER DEFAULT 0,
+		  jobs_new INTEGER DEFAULT 0,
+		  jobs_updated INTEGER DEFAULT 0,
+		  jobs_closed INTEGER DEFAULT 0,
+		  llm_calls INTEGER DEFAULT 0,
+		  llm_cached INTEGER DEFAULT 0,
+		  errors INTEGER DEFAULT 0,
+		  watermark TEXT,
+		  status TEXT NOT NULL
+		)`); err != nil {
+		t.Fatal(err)
+	}
+	// a row written before the migration, as the live table is full of
+	id, err := db.StartRun(ctx, RunReconcile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate over a pre-existing table: %v", err)
+	}
+	for _, c := range addedColumns {
+		have, err := db.HasColumn(ctx, c.table, c.column)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !have {
+			t.Errorf("%s.%s missing after migrate", c.table, c.column)
+		}
+	}
+	// the pre-migration row reads back at the column default, not NULL, so the
+	// aggregate queries /metrics runs over it do not have to special-case it
+	var scanned int
+	if err := db.QueryRowContext(ctx,
+		`SELECT coalesce(sum(close_skipped),0) FROM ingest_run`).Scan(&scanned); err != nil {
+		t.Fatalf("aggregate over a pre-migration row: %v", err)
+	}
+	if err := db.RecordScanAudit(ctx, id, ScanAudit{
+		Scanned: 85487, Total: 85487, TotalMin: 85487, TotalMax: 89531, CloseSkipped: true,
+	}); err != nil {
+		t.Fatalf("RecordScanAudit after migrate: %v", err)
+	}
+	var got, total, max, skipped int
+	if err := db.QueryRowContext(ctx,
+		`SELECT jobs_scanned, total_reported, total_max, close_skipped FROM ingest_run WHERE id=?`,
+		id).Scan(&got, &total, &max, &skipped); err != nil {
+		t.Fatal(err)
+	}
+	if got != 85487 || total != 85487 || max != 89531 || skipped != 1 {
+		t.Errorf("audit round-trip = (%d,%d,%d,%d), want (85487,85487,89531,1)", got, total, max, skipped)
+	}
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("re-migrating an already-migrated table must be a no-op: %v", err)
+	}
+}
+
 func TestMigrateIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)

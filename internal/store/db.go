@@ -55,10 +55,73 @@ func Open(path string, readOnly bool) (*DB, error) {
 	return db, nil
 }
 
-// Migrate creates the schema if it does not exist. Idempotent.
+// addedColumns are columns added to tables that shipped without them. Table and
+// column names here are compile-time constants, never caller input.
+var addedColumns = []struct{ table, column, decl string }{
+	{"ingest_run", "jobs_scanned", "INTEGER DEFAULT 0"},
+	{"ingest_run", "total_reported", "INTEGER DEFAULT 0"},
+	{"ingest_run", "total_min", "INTEGER DEFAULT 0"},
+	{"ingest_run", "total_max", "INTEGER DEFAULT 0"},
+	{"ingest_run", "close_skipped", "INTEGER DEFAULT 0"},
+}
+
+// Migrate creates the schema if it does not exist, then applies additive column
+// migrations. Idempotent.
+//
+// Both halves are needed. `schema` is CREATE TABLE IF NOT EXISTS, which is a
+// no-op against a database that already holds the table — so a column added to
+// that literal reaches new deployments only, while the live database keeps the
+// old shape until the first write of the new column fails at runtime. SQLite has
+// no ADD COLUMN IF NOT EXISTS, so existing columns are detected with PRAGMA
+// rather than by swallowing the ALTER error, which would swallow real ones too.
+//
+// Only the writer commands (ingest, enrich, report) call this; the web server
+// opens the database read-only and never migrates, so a scrape can observe the
+// pre-migration shape — HasColumn is what lets /metrics tolerate that window
+// instead of failing the whole scrape.
 func (d *DB) Migrate(ctx context.Context) error {
-	_, err := d.ExecContext(ctx, schema)
-	return err
+	if _, err := d.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+	for _, c := range addedColumns {
+		have, err := d.HasColumn(ctx, c.table, c.column)
+		if err != nil {
+			return err
+		}
+		if have {
+			continue
+		}
+		if _, err := d.ExecContext(ctx,
+			fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, c.table, c.column, c.decl)); err != nil {
+			return fmt.Errorf("add %s.%s: %w", c.table, c.column, err)
+		}
+	}
+	return nil
+}
+
+// HasColumn reports whether a table already has a column. Read-only, so it is
+// safe on the web server's read-only handle.
+func (d *DB) HasColumn(ctx context.Context, table, column string) (bool, error) {
+	rows, err := d.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var (
+			cid, notnull, pk int
+			name, ctype      string
+			dflt             sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			found = true
+		}
+	}
+	return found, rows.Err()
 }
 
 // Seed upserts the tech_taxonomy and ssoc_taxonomy seed rows. Idempotent.
