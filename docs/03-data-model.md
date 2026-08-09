@@ -193,9 +193,23 @@ CREATE TABLE ingest_run (
   llm_cached   INTEGER DEFAULT 0,
   errors       INTEGER DEFAULT 0,
   watermark    TEXT,            -- 本次处理到的最早 posting_date
-  status       TEXT NOT NULL    -- running | success | partial | failed
+  status       TEXT NOT NULL,   -- running | success | partial | failed
+  -- 扫描审计（2026-08-10 追加）。jobs_seen 记的是本轮**归档**了多少，
+  -- 对账轮只归档没存过的，所以它不等于走过的条数；jobs_scanned 才是。
+  -- 对账的关闭闸门比的正是 jobs_scanned 与 total_reported，而这两个数
+  -- 以前一个都没落库 —— 闸门 2026-08-09 唯一一次触发时，证据只存在于
+  -- 一行容器日志里。total_min/max 记录 total 在整轮扫描期间的摆动区间。
+  jobs_scanned   INTEGER DEFAULT 0,
+  total_reported INTEGER DEFAULT 0,  -- API total，取**最后一页**的读数
+  total_min      INTEGER DEFAULT 0,
+  total_max      INTEGER DEFAULT 0,
+  close_skipped  INTEGER DEFAULT 0   -- 本轮因扫描偏少而放弃「按缺席关闭」
 );
 ```
+
+> 既有库靠 `store.addedColumns` 走 `ALTER TABLE` 补列。上面的建表语句是
+> `CREATE TABLE IF NOT EXISTS`，对已存在的表是空操作 —— 只加在这里，等于只对
+> 全新部署生效，线上那个库会一直保持旧结构直到某次写入撞上缺列才报错。
 
 ## 3. 归档与容量
 

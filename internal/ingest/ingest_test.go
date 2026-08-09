@@ -21,16 +21,24 @@ import (
 type pageRT struct {
 	pages [][]mcf.Job
 	total int
-	idx   int
+	// totals overrides total per page, so a test can move the advertised board
+	// size under a sweep the way the live API does. Pages past its end fall back
+	// to total, which is also what the terminating empty page reports.
+	totals []int
+	idx    int
 }
 
 func (p *pageRT) RoundTrip(r *http.Request) (*http.Response, error) {
 	var jobs []mcf.Job
+	total := p.total
+	if p.idx < len(p.totals) {
+		total = p.totals[p.idx]
+	}
 	if p.idx < len(p.pages) {
 		jobs = p.pages[p.idx]
-		p.idx++
 	}
-	body, _ := json.Marshal(mcf.Page{Results: jobs, Total: p.total})
+	p.idx++
+	body, _ := json.Marshal(mcf.Page{Results: jobs, Total: total})
 	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(body)))}, nil
 }
 
@@ -567,6 +575,152 @@ func TestReconcileWithADroppedPostingSkipsClosing(t *testing.T) {
 	}
 	if miss != 0 {
 		t.Errorf("b miss_count = %d, want 0 — an incomplete round must not count a miss", miss)
+	}
+}
+
+// A transient spike in the advertised board size must not cost the reconcile
+// its close pass.
+//
+// This is the 2026-08-09 regression. Summary.Total latched max(page.Total) while
+// Summary.Jobs accumulated across a 25-minute sweep, so a peak was compared
+// against a sum: the deviation gate read 4.5% (85487 seen vs a 89531 that had
+// long since come down), suspended the close pass, marked the run partial, and
+// with it withheld the full_reconcile success timestamp — which is what
+// JobsSgIngestStale reads. One number moving mid-sweep took out the lifecycle
+// and the freshness alert together. Total now tracks the last page walked.
+func TestReconcileSurvivesATransientTotalSpike(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	runAt := time.Date(2026, 8, 6, 18, 15, 0, 0, time.UTC)
+	now := func() time.Time { return runAt }
+
+	// baseline stores a and b, neither expired
+	rt := &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-07-01"), sweJob("b", "2026-07-01")}}, total: 2}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: now, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The reconcile walks the board to its end and sees `a`; `b` is genuinely
+	// gone. Mid-sweep the API briefly advertises 500, then settles back to the 1
+	// posting actually there. The sweep is complete either way.
+	rt2 := &pageRT{
+		pages:  [][]mcf.Job{{sweJob("a", "2026-07-01")}},
+		totals: []int{500, 1},
+		total:  1,
+	}
+	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: now, Delay: 0, Reconcile: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != store.StatusSuccess {
+		t.Errorf("status = %s, want success — the sweep reached the end of the board", res.Status)
+	}
+	if res.CloseSkipped {
+		t.Error("close was skipped over a spike the sweep had already outlived")
+	}
+	if res.Errors != 0 {
+		t.Errorf("errors = %d, want 0 — nothing failed", res.Errors)
+	}
+
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var miss int
+	if err := db.QueryRowContext(ctx, "SELECT miss_count FROM job WHERE uuid='b'").Scan(&miss); err != nil {
+		t.Fatal(err)
+	}
+	if miss != 1 {
+		t.Errorf("b miss_count = %d, want 1 — the close pass should have run", miss)
+	}
+	// and the audit records what the gate actually saw, which is the evidence
+	// that was missing when this fired in production
+	var scanned, total, tmax int
+	if err := db.QueryRowContext(ctx, `
+		SELECT jobs_scanned, total_reported, total_max FROM ingest_run
+		WHERE kind='full_reconcile' ORDER BY id DESC LIMIT 1`).Scan(&scanned, &total, &tmax); err != nil {
+		t.Fatal(err)
+	}
+	if scanned != 1 || total != 1 || tmax != 500 {
+		t.Errorf("audit = scanned %d, total %d, max %d; want 1, 1, 500", scanned, total, tmax)
+	}
+}
+
+// A sweep that genuinely came up short suspends closing on absence — but still
+// closes on expiry, and records neither as an error.
+//
+// Absence is only evidence a posting is gone when the sweep covered the board.
+// An expiry date is not an inference from absence at all: it is MCF's own
+// published end date for that posting. Suspending it alongside the miss rule is
+// what left every one of the 11580 stored postings open through 2026-08-09,
+// 2770 of them already expired, because a single cautious night stalled the
+// whole lifecycle.
+func TestShortSweepClosesOnExpiryButNotOnAbsence(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	runAt := time.Date(2026, 8, 6, 18, 15, 0, 0, time.UTC)
+	now := func() time.Time { return runAt }
+
+	gone := sweJob("gone", "2026-07-01")
+	gone.Metadata.ExpiryDate = "2026-08-06" // past on 2026-08-07 SGT
+	live := sweJob("live", "2026-07-01")    // expires 2026-12-31, just unseen
+	keep := sweJob("keep", "2026-07-01")
+	rt := &pageRT{pages: [][]mcf.Job{{gone, live, keep}}, total: 3}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: now, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+
+	// the reconcile sees only `keep` while the API insists the board holds 1000
+	rt2 := &pageRT{pages: [][]mcf.Job{{keep}}, total: 1000}
+	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: now, Delay: 0, Reconcile: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.CloseSkipped {
+		t.Error("a sweep 999 postings short of the advertised board must not close on absence")
+	}
+	if res.Status != store.StatusPartial {
+		t.Errorf("status = %s, want partial — the round did not reconcile the board", res.Status)
+	}
+	if res.Errors != 0 {
+		t.Errorf("errors = %d, want 0 — declining to infer is a decision, not a fault", res.Errors)
+	}
+	if res.Closed != 1 {
+		t.Errorf("closed = %d, want 1 (gone, by expiry)", res.Closed)
+	}
+
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var closedGone sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT closed_at FROM job WHERE uuid='gone'").Scan(&closedGone); err != nil {
+		t.Fatal(err)
+	}
+	if !closedGone.Valid {
+		t.Error("a posting past its own published expiry closes whatever the sweep covered")
+	}
+	// the unexpired one is untouched — and crucially its miss_count did not move,
+	// so two distrusted sweeps in a row cannot add up to a close
+	var missLive int
+	var closedLive sql.NullString
+	if err := db.QueryRowContext(ctx,
+		"SELECT miss_count, closed_at FROM job WHERE uuid='live'").Scan(&missLive, &closedLive); err != nil {
+		t.Fatal(err)
+	}
+	if missLive != 0 || closedLive.Valid {
+		t.Errorf("live: miss_count = %d, closed = %v; want 0, NULL", missLive, closedLive.String)
+	}
+	var skipped int
+	if err := db.QueryRowContext(ctx, `
+		SELECT close_skipped FROM ingest_run WHERE kind='full_reconcile'
+		ORDER BY id DESC LIMIT 1`).Scan(&skipped); err != nil {
+		t.Fatal(err)
+	}
+	if skipped != 1 {
+		t.Errorf("ingest_run.close_skipped = %d, want 1", skipped)
 	}
 }
 

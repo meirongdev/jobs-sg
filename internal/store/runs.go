@@ -43,6 +43,36 @@ func (d *DB) FinishRun(ctx context.Context, id int64, status string, pages, seen
 	return err
 }
 
+// ScanAudit is what a paginated sweep observed about the board it walked, as
+// opposed to what it stored. Scanned is every posting the sweep walked past;
+// Total is the size the API advertised as of the last page; Min/Max bracket how
+// far that advertised size moved during the sweep. CloseSkipped records that the
+// reconcile declined to close on absence because Scanned came up short of Total.
+type ScanAudit struct {
+	Scanned      int
+	Total        int
+	TotalMin     int
+	TotalMax     int
+	CloseSkipped bool
+}
+
+// RecordScanAudit stores what the sweep saw, alongside the counters FinishRun
+// already wrote.
+//
+// Kept off FinishRun deliberately: enrich and report also call that, and neither
+// paginates anything, so widening its already eleven-parameter signature with
+// five values only ingest can supply would make every call site carry them as
+// zeros. The two writes are separate statements against the same row rather than
+// one transaction because they are independent facts — losing the audit must not
+// cost the run its status, which is what the alerts read.
+func (d *DB) RecordScanAudit(ctx context.Context, id int64, a ScanAudit) error {
+	_, err := d.ExecContext(ctx, `
+		UPDATE ingest_run SET jobs_scanned=?, total_reported=?, total_min=?, total_max=?, close_skipped=?
+		WHERE id=?`,
+		a.Scanned, a.Total, a.TotalMin, a.TotalMax, boolInt(a.CloseSkipped), id)
+	return err
+}
+
 // LastSuccess returns the most recent success timestamp for a run kind
 // (web /metrics derive state from DB, not process memory — docs/02 §4.4).
 // modernc.org/sqlite returns timestamps as strings, so we parse them here.

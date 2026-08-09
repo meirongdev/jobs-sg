@@ -172,7 +172,19 @@ CREATE TABLE IF NOT EXISTS ingest_run (
   llm_cached   INTEGER DEFAULT 0,
   errors       INTEGER DEFAULT 0,
   watermark    TEXT,
-  status       TEXT NOT NULL
+  status       TEXT NOT NULL,
+  -- Scan audit. jobs_seen counts what a run *archived*, which on a reconcile is
+  -- only what it had never stored before; jobs_scanned is what it actually
+  -- walked. The reconcile's close gate compares the latter against the board's
+  -- advertised size, and with neither number persisted, the one time the gate
+  -- fired (2026-08-09) its evidence existed solely in a log line that nothing
+  -- retains. These reach an existing database via addedColumns in db.go, not
+  -- from here: this literal is CREATE TABLE IF NOT EXISTS.
+  jobs_scanned   INTEGER DEFAULT 0,
+  total_reported INTEGER DEFAULT 0,
+  total_min      INTEGER DEFAULT 0,
+  total_max      INTEGER DEFAULT 0,
+  close_skipped  INTEGER DEFAULT 0
 );
 `
 

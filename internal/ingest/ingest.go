@@ -42,15 +42,20 @@ type slot struct {
 
 // Result summarises a run for ingest_run and callers.
 type Result struct {
-	Kind      string
-	Status    string
-	Pages     int
-	Seen      int // postings archived this run (ingest_run.jobs_seen, "Archived" on /ops)
-	New       int
-	Updated   int
-	Closed    int
-	Errors    int
-	Watermark string
+	Kind    string
+	Status  string
+	Pages   int
+	Scanned int // postings walked past this run (ingest_run.jobs_scanned)
+	Seen    int // postings archived this run (ingest_run.jobs_seen, "Archived" on /ops)
+	New     int
+	Updated int
+	Closed  int
+	Errors  int
+	// CloseSkipped marks a reconcile that declined to close on absence because
+	// its sweep came up short of the board's advertised size. Distinct from
+	// Errors: nothing failed, the round simply did not license the inference.
+	CloseSkipped bool
+	Watermark    string
 }
 
 // Run executes one ingest pass and returns its result.
@@ -278,27 +283,46 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	// reconcile close logic is gated on a clean scan (docs/02 §4.1: success
 	// gate; partial scans must never mass-close).
 	if isReconcile && status == store.StatusSuccess {
+		// Deviation asks exactly one question: did this sweep come up short of
+		// the board it was walking? Short of it, "did not see it" stops being
+		// evidence that a posting is gone, so closing on absence is suspended.
+		//
+		// Expiry closes anyway. expiry_date is MCF's own published end date for
+		// the posting, not an inference from absence, and a posting closed by it
+		// in error reopens the moment it is sighted again (UpsertJob sets
+		// closed_at=NULL). Suspending that branch too is what let one cautious
+		// night stall the lifecycle outright: between 2026-08-09 and this change
+		// the single reconcile that ever ran skipped its close pass, leaving all
+		// 11580 stored postings open — 2770 of them already past expiry.
 		deviation := 0.0
 		if summary.Total > 0 {
 			deviation = float64(absInt(summary.Total-summary.Jobs)) / float64(summary.Total)
 		}
-		if deviation >= 0.02 {
+		closeMissing := deviation < 0.02
+		if !closeMissing {
+			// Deliberately not res.Errors++: this is a policy decision about what
+			// the sweep licenses, not a fault. Counting it as an ingest error fed
+			// jobs_sg_ingest_errors_total, whose alert means "MCF changed shape",
+			// and made a healthy-but-cautious night indistinguishable from a
+			// broken one. Recording the run partial is the honest signal, and it
+			// is what withholds last_success so JobsSgReconcileStale can fire.
+			res.CloseSkipped = true
 			status = store.StatusPartial
-			res.Errors++
-			slog.Warn("reconcile deviation too high, skipping close", "dev", deviation, "seen", summary.Jobs, "total", summary.Total)
-		} else {
-			// expiry_date arrives from MCF as a bare Singapore-local date
-			// ("2026-09-02"), so "today" has to be the SGT one. Taking the UTC
-			// date instead made every reconcile compare against the previous
-			// SGT day — it runs at 02:15 SGT, which is still yesterday in UTC.
-			today := now().In(sgt.Zone).Format("2006-01-02")
-			expired, missed, cerr := db.MissAndClose(ctx, seen, today)
-			if cerr != nil {
-				res.Errors++
-				slog.Warn("close pass failed", "err", cerr)
-			}
-			res.Closed = expired + missed
+			slog.Warn("reconcile came up short of the advertised board, closing on expiry only",
+				"dev", deviation, "scanned", summary.Jobs, "total", summary.Total,
+				"total_min", summary.MinTotal, "total_max", summary.MaxTotal)
 		}
+		// expiry_date arrives from MCF as a bare Singapore-local date
+		// ("2026-09-02"), so "today" has to be the SGT one. Taking the UTC
+		// date instead made every reconcile compare against the previous
+		// SGT day — it runs at 02:15 SGT, which is still yesterday in UTC.
+		today := now().In(sgt.Zone).Format("2006-01-02")
+		expired, missed, cerr := db.MissAndClose(ctx, seen, today, closeMissing)
+		if cerr != nil {
+			res.Errors++
+			slog.Warn("close pass failed", "err", cerr)
+		}
+		res.Closed = expired + missed
 	}
 
 	// The close phase runs after the status is first decided, so re-apply the
@@ -309,6 +333,7 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	res.Pages = summary.Pages
+	res.Scanned = summary.Jobs
 	res.Seen = archivedCount
 	res.New = newCount
 	res.Updated = updatedCount
@@ -316,14 +341,28 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	if err := db.FinishRun(ctx, runID, status, summary.Pages, archivedCount, newCount, updatedCount, res.Closed, 0, 0, res.Errors, res.Watermark); err != nil {
 		return res, err
 	}
+	// What the sweep saw, recorded next to what it stored. This is the evidence
+	// the close gate acted on; without it the gate's one firing to date could
+	// only be reconstructed from a log line the cluster no longer had.
+	if aerr := db.RecordScanAudit(ctx, runID, store.ScanAudit{
+		Scanned: summary.Jobs, Total: summary.Total,
+		TotalMin: summary.MinTotal, TotalMax: summary.MaxTotal,
+		CloseSkipped: res.CloseSkipped,
+	}); aerr != nil {
+		// The audit is a diagnostic, not the round's verdict. FinishRun has
+		// already written the status the alerts read, and failing the run here
+		// would turn a lost diagnostic into a lost night.
+		slog.Warn("scan audit not recorded", "err", aerr)
+	}
 	// scanned vs archived diverge on a reconcile, which walks the whole board
 	// but archives only what it has never stored — logging both keeps that
 	// visible instead of looking like an archive failure.
 	slog.Info("ingest run finished",
 		"kind", kind, "status", status, "pages", summary.Pages,
 		"scanned", summary.Jobs, "archived", archivedCount,
-		"new", newCount, "updated", updatedCount,
-		"closed", res.Closed, "errors", res.Errors, "watermark", res.Watermark)
+		"total", summary.Total, "total_min", summary.MinTotal, "total_max", summary.MaxTotal,
+		"new", newCount, "updated", updatedCount, "closed", res.Closed,
+		"close_skipped", res.CloseSkipped, "errors", res.Errors, "watermark", res.Watermark)
 	return res, nil
 }
 

@@ -20,10 +20,24 @@ var ErrCircuitOpen = errors.New("mcf: page limit exceeded (circuit open)")
 const DefaultUserAgent = "jobs-sg-monitor/1.0 (+https://jobs.meirong.dev)"
 
 // Summary describes one paginated sweep for ingest_run auditing.
+//
+// Total is the API-reported total as of the *last* page walked, not the largest
+// seen along the way. A full sweep takes ~25 minutes and MCF's total moves under
+// it as postings appear and expire; latching the maximum made any transient
+// spike permanent, because Jobs is a sum accumulated across the whole window
+// while Total was a high-water mark. Comparing a peak against a sum biases every
+// figure derived from the pair upward by construction — on 2026-08-09 that read
+// as a 4.5% deviation (85487 seen vs 89531 "total") on a sweep that had in fact
+// walked the board to its last page, and the reconcile skipped its close pass
+// over it. The freshest reading is the one that describes the board the close
+// pass is about to act on. MinTotal/MaxTotal are kept so the spread across the
+// sweep stays visible afterwards instead of having to be reconstructed from logs.
 type Summary struct {
-	Pages int
-	Jobs  int
-	Total int // API-reported total for the current filter
+	Pages    int
+	Jobs     int
+	Total    int // API-reported total as of the last page walked
+	MinTotal int
+	MaxTotal int
 }
 
 // Client is a thin, rate-limited, retrying MCF API client.
@@ -120,7 +134,17 @@ func (c *Client) EachPage(ctx context.Context, fn func(jobs []Job, total int) (b
 			return s, err
 		}
 		s.Pages++
-		if p.Total > s.Total {
+		// A zero never overwrites a real reading. The terminating empty page
+		// does carry the count in practice (verified against the live API), but
+		// a spurious 0 there would otherwise zero out Total and silently blind
+		// the reconcile's deviation gate on the one page it depends on.
+		if p.Total > 0 {
+			if s.MinTotal == 0 || p.Total < s.MinTotal {
+				s.MinTotal = p.Total
+			}
+			if p.Total > s.MaxTotal {
+				s.MaxTotal = p.Total
+			}
 			s.Total = p.Total
 		}
 		stop, err := fn(p.Results, p.Total)

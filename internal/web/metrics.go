@@ -190,6 +190,57 @@ func (s *Server) renderMetrics(ctx context.Context) (string, error) {
 		families = append(families, f)
 	}
 
+	// The reconcile's close gate, made visible. It fired once (2026-08-09),
+	// skipped the close pass over a sweep that had in fact walked the whole
+	// board, and left no trace anywhere a query could reach — the deviation
+	// existed only in a container log line. Exposing the inputs means the next
+	// firing is a graph, not an archaeology exercise.
+	//
+	// Guarded on the column existing: the writer commands migrate on start and
+	// the web server never does, so between a rollout and the next ingest the
+	// scrape would otherwise 500 on the whole body and take every jobs-sg alert
+	// down with it. Absent columns omit the family; a real error still fails.
+	haveAudit, err := s.db.HasColumn(ctx, "ingest_run", "total_reported")
+	if err != nil {
+		return "", fmt.Errorf("scan audit column: %w", err)
+	}
+	if haveAudit {
+		deviation := &family{
+			name: "jobs_sg_reconcile_scan_deviation_ratio",
+			help: "How far the last reconcile's sweep came up short of the board size MCF advertised. The close-on-absence gate suspends above 0.02.",
+			typ:  "gauge",
+		}
+		var scanned, total int
+		found, err := s.scanRow(ctx, `
+			SELECT jobs_scanned, total_reported FROM ingest_run
+			WHERE kind='full_reconcile' AND ended_at IS NOT NULL AND total_reported > 0
+			ORDER BY id DESC LIMIT 1`, nil, &scanned, &total)
+		if err != nil {
+			return "", fmt.Errorf("reconcile deviation: %w", err)
+		}
+		if found {
+			d := float64(total-scanned) / float64(total)
+			if d < 0 {
+				d = -d
+			}
+			deviation.add("jobs_sg_reconcile_scan_deviation_ratio %g", d)
+		}
+
+		skipped := &family{
+			name: "jobs_sg_reconcile_close_skipped_total",
+			help: "Reconciles that declined to close postings on absence because their sweep came up short.",
+			typ:  "counter",
+		}
+		var n int
+		if _, err := s.scanRow(ctx,
+			`SELECT coalesce(sum(close_skipped),0) FROM ingest_run WHERE kind='full_reconcile'`,
+			nil, &n); err != nil {
+			return "", fmt.Errorf("reconcile close skipped: %w", err)
+		}
+		skipped.add("jobs_sg_reconcile_close_skipped_total %d", n)
+		families = append(families, deviation, skipped)
+	}
+
 	backlog := &family{
 		name: "jobs_sg_enrich_backlog",
 		help: "SWE postings the LLM layer has not processed yet.",

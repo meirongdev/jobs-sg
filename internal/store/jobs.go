@@ -214,6 +214,16 @@ func (d *DB) QueryWatermark(ctx context.Context) (sql.NullString, error) {
 //
 // Returns postings closed by expiry and by the two-miss rule, separately.
 //
+// closeMissing=false runs the expiry branch alone: no miss_count is incremented
+// and nothing closes on absence. The caller passes false when the sweep looked
+// short against the board's advertised size, because that is exactly the state
+// in which "did not see it" stops being evidence that a posting is gone. Expiry
+// is not an inference from absence — expiry_date is the posting's own advertised
+// end date, published by MCF — so it stays safe to act on even then, and a
+// posting wrongly closed by it reopens the moment it is sighted again (UpsertJob
+// sets closed_at=NULL). Skipping the increment rather than merely the close is
+// the point: two consecutive distrusted sweeps must not add up to a close.
+//
 // The seen set is staged into a temp table so the whole pass is two UPDATEs
 // instead of a SELECT plus an UPDATE per open job: reconcile walks the entire
 // live market (~86k rows), and the row-at-a-time version spent minutes of the
@@ -222,10 +232,10 @@ func (d *DB) QueryWatermark(ctx context.Context) (sql.NullString, error) {
 // Like UpsertJob this retries a lock collision. It matters more here: this is
 // the reconcile's close pass, and losing it marks the run partial, which is
 // exactly the signal the caller uses to decide the round was not clean.
-func (d *DB) MissAndClose(ctx context.Context, seen map[string]bool, today string) (expired, missed int, err error) {
+func (d *DB) MissAndClose(ctx context.Context, seen map[string]bool, today string, closeMissing bool) (expired, missed int, err error) {
 	rerr := d.retryBusy(ctx, func() error {
 		var oerr error
-		expired, missed, oerr = d.missAndCloseOnce(ctx, seen, today)
+		expired, missed, oerr = d.missAndCloseOnce(ctx, seen, today, closeMissing)
 		return oerr
 	})
 	return expired, missed, rerr
@@ -233,7 +243,7 @@ func (d *DB) MissAndClose(ctx context.Context, seen map[string]bool, today strin
 
 // missAndCloseOnce is one attempt at MissAndClose's transaction. A failed
 // attempt rolls back whole, so re-running it cannot double-count miss_count.
-func (d *DB) missAndCloseOnce(ctx context.Context, seen map[string]bool, today string) (expired, missed int, err error) {
+func (d *DB) missAndCloseOnce(ctx context.Context, seen map[string]bool, today string, closeMissing bool) (expired, missed int, err error) {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
@@ -275,22 +285,25 @@ func (d *DB) missAndCloseOnce(ctx context.Context, seen map[string]bool, today s
 	}
 	expired = int(n)
 
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE job SET miss_count = miss_count + 1 WHERE `+unseen); err != nil {
-		return 0, 0, err
+	if closeMissing {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE job SET miss_count = miss_count + 1 WHERE `+unseen); err != nil {
+			return 0, 0, err
+		}
+		// only rows just missed can close here, so a job seen this round
+		// (miss_count reset to 0 by UpsertJob) can never be caught by a stale
+		// counter
+		res, err = tx.ExecContext(ctx,
+			`UPDATE job SET closed_at=? WHERE miss_count >= 2 AND `+unseen, NowUTC())
+		if err != nil {
+			return 0, 0, err
+		}
+		n, err = res.RowsAffected()
+		if err != nil {
+			return 0, 0, err
+		}
+		missed = int(n)
 	}
-	// only rows just missed can close here, so a job seen this round (miss_count
-	// reset to 0 by UpsertJob) can never be caught by a stale counter
-	res, err = tx.ExecContext(ctx,
-		`UPDATE job SET closed_at=? WHERE miss_count >= 2 AND `+unseen, NowUTC())
-	if err != nil {
-		return 0, 0, err
-	}
-	n, err = res.RowsAffected()
-	if err != nil {
-		return 0, 0, err
-	}
-	missed = int(n)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM reconcile_seen`); err != nil {
 		return 0, 0, err
 	}

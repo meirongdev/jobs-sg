@@ -107,10 +107,11 @@
 - Then B 的 `closed_at` 置为当前时间
 - And 仅见一次时（miss_count=1）不关闭
 
-### Scenario: partial 扫描不执行关闭判定
-- Given 本轮对账因熔断/页数偏差被标记 status='partial'
+### Scenario: 扫描出错的一轮不执行关闭判定
+- Given 本轮对账因熔断/页请求失败/归档写入失败/upsert 失败被标记 status='partial'
 - When 扫描结束
 - Then 不批量写入任何 `closed_at`
+- And 不递增任何 `miss_count`
 - And 仅更新已见职位的 last_seen_at
 
 ### Scenario: reopen 不清除新增归属
@@ -119,11 +120,19 @@
 - Then C 的 `closed_at` 清为 NULL（reopen）
 - And C 不产生"新增"（新增量仍按 original_posting_date 归属）
 
-### Scenario: 对账完整性偏差告警
-- Given 抓取条数与 API total 偏差 ≥2%
+### Scenario: 扫描偏少的一轮只按到期关闭，不按缺席关闭
+- Given 扫描本身干净（无错误），但抓取条数与 API total（**最后一页**读数）偏差 ≥2%
 - When 对账结束
-- Then 标记 status='partial'
-- And 记入 `jobs_sg_ingest_errors_total`
+- Then 未见且 `expiry_date < today` 的职位照常关闭——到期是 MCF 公布的事实，不是从缺席推断出来的
+- And 未见但未到期的职位 `miss_count` **不递增**（否则连续两轮不可信的扫描会累加成一次关闭）
+- And 标记 status='partial' 且 `close_skipped=1`
+- And **不**记入 `jobs_sg_ingest_errors_total`（这是判断，不是故障）
+
+### Scenario: 扫描中途 total 抬升不影响关闭判定
+- Given 扫描期间某一页的 API total 短暂跳高，到最后一页已回落
+- When 对账走到最后一页正常结束
+- Then 偏差按最后一页的 total 计算，关闭判定照常执行
+- And `total_max` 记下那次抬升，供事后核对
 
 ---
 
