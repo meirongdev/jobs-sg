@@ -59,7 +59,7 @@
    **为什么这步机器代替不了**：SSOC 码到 role_family 是语义判断（"25199 其他软件开发员"该算 Backend 还是 Other-IT），错了整季度的趋势都跟着错。
    **风险与兜底**：核定之前，周报与 `/tech` 的角色分布可能偏斜。可接受，因为 archive-before-parse 使口径可全量重算（docs/01 §4 本就要求口径变更重算历史）。**首个完整周报发布前应先做完这项**。
 2. ~~**fixture 掺入已下架岗位**~~ —— **已完成**（2026-08-07）。`buildFixtureDB` 里 `closeFixturePostings` 按确定性规则关掉 1/3 的岗位，寿命覆盖 `<7 / 7-14 / 15-30 / 30-60 / 60+` 各档含边界值；其余 2/3 保持在架，右删失因此可见。
-3. ~~**A-2b**~~ —— **已完成**（2026-08-07）。`/` 现算快报页（在架量、周新增、WoW、12 周趋势、方向/资历/工作模式分布、入门岗绝对数）与 `/companies`（持续招聘者按 UEN 归并、类型分布、各家竞争度与透明率、岗位寿命含右删失标注、幽灵岗信号、按方向的竞争度分层）。导航为 Market / Tech / Pay / Employers / Weekly report，周报移到 `/reports`。
+3. ~~**A-2b**~~ —— **已完成**（2026-08-07）。`/` 现算快报页（在架量、周新增、WoW、12 周趋势、方向/资历/工作模式分布、入门岗绝对数）与 `/companies`（持续招聘者按 UEN 归并、类型分布、各家竞争度与透明率、岗位寿命含右删失标注、幽灵岗信号、按方向的竞争度分层），以及 `/tech` `/pay` 统计页与 `/daily` → `/ops` 改名（spec §2.1）。导航为 Market / Tech / Pay / Employers / Weekly report，周报移到 `/reports`。
 4. ~~**A-2c**~~ —— **已完成**（2026-08-07）。周报按 spec §4.5 重排为 7 节、Data Quality 收为页脚一行；各节数字改由 `internal/metric` 计算（周报与实时页共用一份口径），顺带落地 §3.7 的第 ①②④ 三处口径修正；Telegram 改求职者口播（升温 Top 3、入门岗绝对数、各经验档薪资带、数据新鲜度、周报链接）并从 `cmd/report` 下沉到 `internal/report` 以便测试；`weekly_metric` 新增 `tech_share`/`swe_enriched` 审计行；`pct`/`money`/`topn` 收敛到 `internal/view`。
 5. **Phase B `/jobs`**：前置为验证 MCF 回链格式（spec §6）；另注意描述正文不落库，全文搜索需读归档或加列。
 6. ~~零散项~~ —— 除两条外**均已完成**（2026-08-07）：`closed_at` 逐周前移已修（原来是 `CloseExpired` 漏了候选集门控，不是口径问题）· 五份 SGT 常量已收敛到 `internal/sgt` · 两个 gauge 已去掉 `_total` 后缀 · `lensNav` 已改 copy-and-override。

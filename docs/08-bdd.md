@@ -287,8 +287,8 @@
 
 ### Scenario: 数字不由 LLM 产生
 - When 渲染周报数字章节
-- Then 所有数字来自 SQL 计算（weekly_metric 或直接查询）
-- And LLM 仅生成 Insights 段落的自然语言解读，且 prompt 只含已算好的数字
+- Then 所有数字来自 SQL 计算（`internal/metric` 或直接查询）
+- And report 全程不调用 LLM——Telegram 摘要也是从已算好的数字拼出的求职者口播
 
 ---
 
@@ -309,17 +309,42 @@
 
 ### Scenario: 章节完整
 - When report 生成
-- Then HTML 含 8 个章节：Executive Snapshot / Hiring Trends / Tech Trends / Compensation / Demand Signals / Skills-first / Insights / Data Quality
+- Then HTML 含 7 个章节：Snapshot / Technology / Pay / Getting in / Competition and listing length / Employers / About these numbers
+- And 原 Data Quality 收为页脚一行状态 + 链到 `/ops`
 
 ---
 
 ## Feature: Web 展示与可观测（web）
 
-### Scenario: 路由与只读
+### Scenario: 统计页路由与只读
 - Given SQLite 以 mode=ro 打开
-- When 访问 `/`、`/w/2026-W32`、`/healthz`、`/metrics`
-- Then 分别返回最新周报、历史周报、200 健康检查、Prometheus 指标
+- When 访问 `/`、`/tech`、`/pay`、`/companies`、`/reports`、`/w/2026-W32`、`/ops`、`/healthz`
+- Then 分别返回快报页、技术趋势页、薪资页、雇主页、最新周报、历史周报、采集状态页、200 健康检查
 - And 任何请求不产生写入
+- And `/metrics` 只在独立 9090 端口可达，公共监听器（`jobs.meirong.dev`）上为 404
+
+### Scenario: /daily 301 到 /ops
+- Given 访问历史路径 `/daily` 或 `/daily/2026-08-04`
+- When 请求到达 web
+- Then 301 重定向到 `/ops`、`/ops/2026-08-04`（保留 query string）
+- And 不影响新路径 `/ops` 的正常渲染
+
+### Scenario: 镜头白名单
+- Given 请求 `/pay?exp=3-5&role=Backend`
+- When 该镜头合法
+- Then 返回 200，且数字按镜头重算（非前端过滤）
+- And 缓存键含镜头规范化串（不同镜头不串页）
+- Given 请求 `/pay?exp=bogus` 或 `/tech?role=nope`
+- When 值不在白名单
+- Then 返回 400（不静默忽略）
+
+### Scenario: 抑制渲染为一等状态
+- Given 某薪资单元格样本 n=4
+- When 渲染该格
+- Then 输出 `—(n=4)` 而非 0
+- Given 动量所需历史仅 2 周（需 5 周）
+- When 渲染动量区块
+- Then 输出「需 5 周历史，当前 2 周」说明文案，不是空图也不是 0
 
 ### Scenario: 指标从 DB 现算
 - Given ingest_run 表中最近一次 incremental 为 2026-08-01T02:15:00Z
@@ -332,10 +357,10 @@
 - When 访问该路由
 - Then 返回 404
 
-### Scenario: 每日采集统计页按 SGT 日分桶
+### Scenario: 采集状态页按 SGT 日分桶
 - Given `ingest_run` 有一次 started_at=2026-08-03T18:15:00Z 的 incremental（=02:15 SGT 08-04）
 - And 同日 03:10 SGT 的 enrich 为 status='partial'
-- When 访问 `/daily`
+- When 访问 `/ops`
 - Then 该次采集计入 **2026-08-04** 行而非 08-03
 - And 该行状态取当日最差状态（partial）
 - And 采集计数（pages/归档/更新）来自 ingest 类 run，LLM 计数来自 enrich run
@@ -345,12 +370,12 @@
 ### Scenario: 没有跑过的日子显示为缺口
 - Given 2026-08-03 当天没有任何 run
 - And 该日之前与之后都有活动
-- When 访问 `/daily`
+- When 访问 `/ops`
 - Then 该日仍出现一行，状态显示 "no run"
 - And 管线**首次活动之前**的空白日不渲染（新部署不刷屏）
 
 ### Scenario: 单日下钻
-- Given 请求 `/daily/2026-08-04`
+- Given 请求 `/ops/2026-08-04`
 - When 访问该路由
 - Then 列出当日逐条 run（kind/status/起止/耗时/各计数/watermark）
 - And 给出当日 role_family、seniority 分布与技术栈 Top N
@@ -359,9 +384,56 @@
 - And 非法日期、未来日期返回 404
 
 ### Scenario: 日窗口参数受限
-- Given 请求 `/daily?days=N`
+- Given 请求 `/ops?days=N`
 - When N 不在 1..90 内或不可解析
 - Then 返回 400
+
+## Feature: 求职者统计页与指标口径（Phase A，internal/metric）
+
+统计页（`/` `/tech` `/pay` `/companies`）与周报共用 `internal/metric` 一份口径；镜头贯穿全站；数据不足是一等状态。
+
+### Scenario: 快报页口径
+- Given 统计周内 100 个新增 canonical 职位、其中 15 个入门岗
+- When 渲染 `/`
+- Then 在架量、周新增、WoW、12 周趋势、方向/资历/工作模式/雇佣类型分布全部来自 `metric.MarketReport`
+- And 入门岗给出绝对数（15）而非占比
+
+### Scenario: 技术动量排除当周
+- Given 已富化新增 SWE 岗位的 ISO 周数据到 W31（含）为止，W32 仍在进行
+- When 计算动量
+- Then 基线 W = W31（最后一个已完成 ISO 周），W32 不参与
+- And 已完成周数 <5 时降级为 `Coverage.Reason="history"`，页面渲染说明文案而非空图/0
+
+### Scenario: 动量分母为已富化岗位
+- Given 10 个岗位提到 'kubernetes'，其中 3 个未富化（无 job_tech 也无 enrich_done）
+- When 计算 share_W(kubernetes)
+- Then 分母 = 已富化岗位数（不含这 3 个），不被 enrich backlog 系统性压低
+- And 同步落 `weekly_metric` 的 `tech_share` 与 `swe_enriched` 审计行
+
+### Scenario: 薪资分位用最近秩
+- Given 某格公开月薪样本 [3000, 4500, 5200, 9000]
+- When 计算 p25/p50/p75
+- Then 报出的每个值都存在于输入样本（非插值）
+- And n=4 时该格抑制渲染为 `—(n=4)`
+- And n=5 时出数（抑制边界在 4/5 两侧）
+
+### Scenario: 透明率与中位数谓词分离
+- Given 100 个 SWE 岗位：60 个月薪公开、10 个年薪公开、30 个隐藏薪资
+- When 计算透明率
+- Then 透明率 = 70%（年薪公开也算透明），与中位数只取月薪样本（60）是**两个不同集合**
+- And 两处样本量各自披露
+
+### Scenario: 寿命只计已下架岗位
+- Given 岗位 A 已关闭（closed_at=08-30）、岗位 B 在架
+- When 计算岗位寿命
+- Then 只统计 A，B 不计入（结果系统性偏短，页面标题注明「已下架岗位的挂牌天数」= 右删失标注）
+- And 精度下限 1 天（日批采集）
+
+### Scenario: 竞争度按日均归一化
+- Given 两岗位 application_count 均为 30，A 在架 1 天、B 在架 30 天
+- When 计算竞争度
+- Then A 30 apps/day、B 1 app/day（同计数不同年龄给出不同结果）
+- And 页面标注为快照非趋势（不暗示时间维度）
 
 ---
 
@@ -424,7 +496,8 @@
 | 分类口径 20–26 | SWE 口径分类 |
 | 技术栈富化 27–33 | 技术栈富化 |
 | 指标与周报 34–43 | 周报指标计算 / 周报渲染与推送 |
-| 展示 44–46 | Web 展示与可观测 |
+| 展示 44–46i | Web 展示与可观测 |
+| 求职者站点 46b–46i | 求职者统计页与指标口径（Phase A） |
 | 可观测性与运维 47–52 | 调度与运维约束 |
 | 合规 53–55 | （非功能约束，见 03 §5 合规红线；由 fixture 与代码评审保障） |
 | 多源化 56–59 | 多源扩展 |

@@ -5,9 +5,9 @@ jobs-sg is a Go 1.26 service that ingests Singapore SWE job postings from the pu
 ## Project Structure & Module Organization
 
 - `cmd/{ingest,enrich,report,web}` — command entrypoints; keep mains thin, put logic in `internal/`.
-- `internal/{mcf,store,classify,tech,llm,report,web}` — shared libraries per stage.
-- `testdata/fixture/jobs.jsonl` — ~100 job fixtures for replay tests; regenerate with `scripts/genfixture/`.
-- `docs/` — numbered design docs (01–08); `03-data-model.md`, `05-roadmap.md`, and `08-bdd.md` are living docs kept in sync with code.
+- `internal/{mcf,store,classify,tech,llm,ingest,metric,report,sgt,view,web}` — shared libraries per stage (`metric` = site+report aggregate layer, `view` = shared visual layer).
+- `testdata/fixture/jobs.jsonl` — 360 fixtures across 6 complete ISO weeks (incl. closed postings and `min_years_exp` NULL) for replay tests; regenerate with `scripts/genfixture/`.
+- `docs/` — numbered design docs (01–09); `03-data-model.md`, `05-roadmap.md`, and `08-bdd.md` are living docs kept in sync with code.
 - `deploy/` — reference kustomize manifests; sync to `meirongdev/homelab` for ArgoCD (never point ArgoCD at this repo).
 
 ## Build, Test, and Development Commands

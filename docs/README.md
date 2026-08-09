@@ -1,6 +1,6 @@
 # jobs-sg 文档
 
-新加坡 SWE 职位监控与周报系统：每日拉取 MyCareersFuture 公开 JSON API → SQLite → 本地 LLM 技术栈富化 → 每周一生成趋势周报（`jobs.meirong.dev` + Telegram）。
+新加坡 SWE 求职者市场情报站点：每日拉取 MyCareersFuture 公开 JSON API → SQLite → 本地 LLM 技术栈富化 → 求职者统计页（`/` `/tech` `/pay` `/companies`）+ 每周一生成趋势周报归档（`jobs.meirong.dev` + Telegram）。
 
 ## 文档地图
 
@@ -20,12 +20,12 @@
 
 **阅读顺序**：首次 01 → 02 → 03 → 07；写代码时常驻 03 + 08；**部署时 09（原理查 04）**；日常只看 05。
 
-## 当前状态（2026-08-07）
+## 当前状态（2026-08-09）
 
-- **代码侧 Phase 1 + Phase 2 基本完成**：ingest（增量/首跑基线/周对账 + closed_at 生命周期）、enrich（规则 + LLM 降级链、fail-open）、report（周报 HTML/MD + Telegram）、web（`/`、`/tech`、`/pay`、`/ops`、`/healthz` + 独立端口 `/metrics`）。
+- **代码侧 Phase 1 + Phase 2 基本完成**：ingest（增量/首跑基线/周对账 + closed_at 生命周期）、enrich（规则 + LLM 降级链、fail-open）、report（7 节周报 HTML/MD + Telegram 求职者口播）、web（求职者统计页 `/` `/tech` `/pay` `/companies` + `/ops` 运维视图 + 周报归档 `/reports` `/w/{week}` + `/healthz` + 独立端口 `/metrics`；`/daily` 301 → `/ops`）。
+- **求职者站点 Phase A 已完成**（A-2b + A-2c，2026-08-07/08）：`internal/metric` 纯聚合层 + `internal/view` 共享视觉，周报与实时页共用一份口径；`?exp=`/`?role=` 镜头、抑制一等状态均已落地。
 - **尚未部署**——这是当前唯一的关键路径。照 [09-deploy-runbook.md](09-deploy-runbook.md) 走。
 - **Phase 0 分类口径核定仍未做**，已刻意推迟到首次 ingest 之后（届时 `jobs.db` 里就有现成样本），理由与风险见 [05-roadmap.md](05-roadmap.md) Backlog 第 1 条。**发布首个完整周报前应先做完。**
-- 求职者站点 A-2b（`/` 快报、`/companies`）与 A-2c（周报重排）在 backlog。
 
 ## 变更记录
 
@@ -34,4 +34,5 @@
 | 2026-08-02 | v1 | 初版架构方案（爬虫 + PG + 调度器）。技术选型当日即被实测推翻 → [归档](archive/2026-08-02-v1-architecture.md) |
 | 2026-08-02 | v2 | 实测驱动的 k3s 设计（API 直连 / CronJob / SQLite / Go）+ §15 多源化。原文见 git `ca356f6` |
 | 2026-08-07 | — | **上线准备**：一轮设计审查修完 P0/P1/P2（reopen 缺失、对账重复归档、告警每周误报、bot token 进日志、首页裸 404、`/metrics` 公网可达、指标类型与标签基数、缓存惊群、SGT 日历两处）；新增 09 部署 runbook；roadmap 拆分「代码完成」与「部署完成」 |
+| 2026-08-09 | — | **文档同步**：07-prd / 02-design / 03-data-model / 08-bdd / README 对齐 2026-08-07 求职者站点 spec（定位、路由、周报 7 节、`internal/metric` 口径、抑制一等状态、新索引）；`/daily` 改名 `/ops` 落文 |
 | 2026-08-02 | v2.1 | **评审修正 + 文档重构**：①全量对账 closed_at 判定重写（success 门控 / 两周未见 / reopen）；②日增量归档改全类目；③跨源指纹降级为"动工前重审"；④首跑基线策略；⑤fixture 回放测试入 Phase 1 DoD。原两份文档拆分为 01–06 + archive |

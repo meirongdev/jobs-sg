@@ -79,7 +79,7 @@
                     │                                                │                            │
                     │  ┌──────────────────────────────┐  只读(mode=ro)│                            │
                     │  │ Deployment jobs-sg-web (1)   │◀──────────────┘                            │
-                    │  │  /            周报 HTML       │                                            │
+                    │  │  /      现算统计页+周报归档     │                                            │
                     │  │  /metrics     Prometheus      │◀── ServiceMonitor (release=kube-prom...)  │
                     │  └───────────┬──────────────────┘                                            │
                     └──────────────┼─────────────────────────────────────────────────────────────┘
@@ -97,7 +97,7 @@
 | `ingest` | CronJob | 每日 02:15 SGT | 分页拉取新增职位 → 全类目归档 + 候选入 SQLite；周日额外做全量在架对账 |
 | `enrich` | CronJob | 每日 03:10 SGT | 对新增/描述变更的职位调 LLM 抽技术栈；按描述哈希缓存 |
 | `report` | CronJob | 周一 09:00 SGT | 物化周度聚合表 → 渲染 HTML + Markdown → 推 Telegram |
-| `web` | Deployment×1 | 常驻 | 静态托管周报 + 现算每日采集统计页 + `/metrics` + `/healthz` |
+| `web` | Deployment×1 | 常驻 | 现算求职者统计页（`/` `/tech` `/pay` `/companies`，60s 缓存）+ `/ops` 运维视图 + 周报归档（`/reports` `/w/{week}`）+ `/metrics`（独立 9090）+ `/healthz` |
 
 **为什么 ingest 与 enrich 分开**：LLM 是唯一可能长时间失败的外部依赖（DGX 关机、虚拟密钥过期）。分离后 enrich 失败不影响数据完整性——原始数据已落盘，enrich 是幂等可重放的补算作业。符合 homelab **fail-open** 硬约束。
 
@@ -211,17 +211,17 @@ Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature
 
 周报章节 → 数据来源映射（章节定义见 [01](01-requirements.md) §2.1）：
 
-| 章节 | 数据来源 |
+| 章节 | 数据来源（`internal/metric`，与实时页同一份口径） |
 |---|---|
-| Executive Snapshot | `job.posting_date` / `closed_at` |
-| Hiring Trends | `role_family` / `seniority` / `company.company_type` / `company_uen` |
-| Tech Trends | `job_tech` × `weekly_metric` |
-| Compensation | `salary_min/max`（排除 `salary_hidden=1`） |
-| Demand Signals | `view_count` / `application_count` |
-| Skills-first | `min_years_exp` / `ssecEqa` |
-| Data Quality | `ingest_run` / `unmapped_tech` |
+| 1. Snapshot | `metric.MarketReport`：新增量、环比、在架量、最忙方向 + 三个分布 |
+| 2. Technology | `metric.TechReport`：需求排名 + 动量（pp，历史不足则说明） |
+| 3. Pay | `metric.PayReport`：经验阶梯 p25/p50/p75 + 透明率；样本不足即抑制 |
+| 4. Getting in | 入门岗**绝对数**（取代原 `no_exp_ratio`） |
+| 5. Competition and listing length | `metric.CompanyReport`：日均投递/浏览 + 已下架岗位挂牌天数（标右删失） |
+| 6. Employers | Top 雇主 + 类型分布 |
+| 7. About these numbers | 一段方法说明（原 Data Quality 收为页脚一行 + 链 `/ops`） |
 
-> **数字与解读分离**：所有数字由 SQL 计算并直接渲染；LLM **只允许**生成 "Insights" 段落的自然语言解读，且 prompt 注入的是**已算好的数字**，禁止模型自行计算。LLM 幻觉不会污染指标。
+> **数字与解读分离**：所有数字由 SQL 计算（`internal/metric` 纯聚合层）并直接渲染；report **全程不调用 LLM**——Telegram 摘要也是从已算好的数字拼出的求职者口播（升温 Top 3 / 入门岗绝对数 / 各经验档薪资带 / 数据新鲜度）。LLM 幻觉不会污染指标。
 
 ### 4.4 web（常驻）
 
@@ -230,14 +230,21 @@ Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature
 
 | 路由 | 内容 | 产出方式 |
 |---|---|---|
-| `/` | 最新周报 | `report` CronJob 预生成的静态 HTML |
-| `/w/{YYYY-Www}` | 历史周报 | 同上 |
-| `/daily` | **每日采集统计**：按 SGT 日聚合的运行明细表（kind/status/耗时/pages/归档/新增/SWE/更新/下架/errors/LLM）、日新增 SWE 柱状图、近 7 天技术栈 Top 15 | 请求时从 DB 现算渲染 |
-| `/daily/{YYYY-MM-DD}` | 单日下钻：逐条 run 记录、当日 role_family/seniority 分布、当日技术栈、当日首见职位列表（上限 200 条） | 同上 |
+| `/` | **求职者快报**：在架量、周新增、WoW、12 周趋势、方向/资历/工作模式/雇佣类型分布、入门岗绝对数 | 请求时从 DB 现算渲染（60s 缓存） |
+| `/tech` | **技术趋势**：需求排名、动量（pp）、薪资溢价、入门友好度、MCF 原生技能标签 | 同上 |
+| `/pay` | **薪资**：分位数网格、经验阶梯、透明率（每处标注样本量） | 同上 |
+| `/companies` | **雇主**：持续招聘者、类型分布、各家竞争度与透明率、岗位寿命（右删失）、幽灵岗信号 | 同上 |
+| `/reports` | 最新周报入口（尚无周报时渲染说明页） | `report` CronJob 预生成的静态 HTML |
+| `/w/{YYYY-Www}` | 历史周报（不可变归档） | 同上 |
+| `/ops` | **采集状态**：按 SGT 日聚合的运行明细表（kind/status/耗时/pages/归档/新增/SWE/更新/下架/errors/LLM）、日新增 SWE 柱状图、近 7 天技术栈 Top 15 | 请求时从 DB 现算渲染 |
+| `/ops/{YYYY-MM-DD}` | 单日下钻：逐条 run 记录、当日 role_family/seniority 分布、当日技术栈、当日首见职位列表（上限 200 条） | 同上 |
+| `/daily`、`/daily/{date}` | 301 → `/ops`、`/ops/{date}`（历史路径） | 301 重定向 |
 | `/healthz` | 健康检查 | DB ping |
+| `/robots.txt` | 放行索引、禁抓 `/ops/` | 静态 |
 | `/metrics` | Prometheus 指标（**独立监听端口 9090，不在公网路由上**） | 从 `ingest_run` 与 `job` 表现算 |
 
-- **两个页面、两种产出方式**：周报是「每周一次、需要推 Telegram、要可回溯归档」的产物，落静态文件；日更明细是「ingest 一跑完就要最新」的运维视图，02:20 SGT 的数据不该等到下一次 CronJob 才可见，因此与 `/metrics` 同样从 DB 现算（无写入，只读连接足够）。两页互相导航。
+- **两种产出方式、三层消费**：统计页与 `/ops` 是「请求一发生就要最新」的现算视图（60s 缓存，ingest 一跑完即可见，不依赖任何 CronJob 产物）；周报是「每周一次、需要推 Telegram、要可回溯归档」的产物，落静态文件只读托管。全站统计数字由 `internal/metric` 纯聚合层计算（spec §4.2），视觉由 `internal/view` 共享（baseCSS/SVG/抑制值渲染）——周报与实时页共用一份口径、一套样式，不会就「这周发生了什么」给出不同答案。
+- **镜头**：`?exp=`/`?role=` 贯穿全部统计页，白名单校验（非法值 400），缓存键含镜头。**数据不足是一等状态**：样本不足渲染 `—(n=…)` 或「需 N 周历史」而非 0（spec §5）。
 - **SGT 日历日分桶**：时间戳按 UTC 存储，而 02:15 SGT 的 ingest 落在前一天 18:15 UTC——按 UTC 日分组会把每次采集记到前一天。SQL 侧用 `date(col,'+8 hours')`，Go 侧用 `.In(sgt)`。
 - 日页面窗口默认 30 天（`?days=` 可调，上限 90），并裁掉管线首次运行之前的空白日；活跃日之间的空缺**保留**，那是漏跑信号。
 - `/metrics` 从 `ingest_run` 与 `job` 表现算（状态在 DB 不在进程内，重启无损）

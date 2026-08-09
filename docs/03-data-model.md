@@ -85,6 +85,12 @@ CREATE INDEX idx_job_active       ON job(last_seen_at, closed_at);
 CREATE INDEX idx_job_swe          ON job(is_swe, posting_date);
 CREATE INDEX idx_job_company      ON job(company_uen);
 CREATE INDEX idx_job_fp           ON job(canonical_fp);
+-- spec §4.3 新增：/tech 逐技术查询与统计页口径
+CREATE INDEX idx_job_first_seen   ON job(first_seen_at);
+CREATE INDEX idx_job_closed       ON job(closed_at);
+CREATE INDEX idx_job_active_list  ON job(is_swe, closed_at, posting_date);
+CREATE INDEX idx_job_salary       ON job(is_swe, salary_type, salary_hidden, posting_date);
+CREATE INDEX idx_job_exp          ON job(is_swe, min_years_exp);
 
 -- ── 官方技能标签（MCF 自带，偏业务向）──────────────────────────────────
 CREATE TABLE job_skill (
@@ -102,6 +108,7 @@ CREATE TABLE job_tech (
   source    TEXT NOT NULL,       -- rule | llm（可同 job+slug 共存）
   PRIMARY KEY (job_uuid, tech_slug, source)
 ); -- 实现注：PK 含 source，使 LLM 层可补充规则层未覆盖词，且 llm 积压口径可清零
+CREATE INDEX idx_job_tech_slug ON job_tech(tech_slug, job_uuid);  -- spec §4.3: /tech 按 slug 逐技术查询
 CREATE TABLE tech_taxonomy (     -- 别名归一：golang→go, k8s→kubernetes, gcp→google-cloud
   alias TEXT PRIMARY KEY, tech_slug TEXT NOT NULL, tech_kind TEXT NOT NULL
 );
@@ -163,7 +170,7 @@ CREATE TABLE enrich_cache (
 -- ── 周度指标物化（长表：新增指标不改 schema）──────────────────────────
 CREATE TABLE weekly_metric (
   week_start TEXT NOT NULL,      -- ISO 周一 (SGT)
-  metric     TEXT NOT NULL,      -- new_jobs | active_jobs | tech_freq | salary_median | ...
+  metric     TEXT NOT NULL,      -- new_jobs | active_jobs | tech_freq | salary_median | tech_share | swe_enriched | ...
   dim_key    TEXT NOT NULL DEFAULT '',   -- 维度值：python / Senior / Backend / <UEN>
   dim_type   TEXT NOT NULL DEFAULT '',   -- tech / seniority / role_family / company
   value      REAL NOT NULL,
@@ -234,7 +241,7 @@ CREATE TABLE ingest_run (
 - **技术频次**：出现该技术的**职位数**（非词频），按 `job_tech` distinct。
 - **薪资中位数**：`(salary_min + salary_max) / 2` 的中位数，仅 `salary_hidden=0` 且 `salary_type='Monthly'`；其他币种/周期单独统计不混算；跨源先归一 `salary_type`（见 [06](06-multi-source.md) §5）。
   - **偶数样本取上中位数**（`vals[n/2]`）而非上下两值取平均。理由：口径要跨周稳定且可复现，上中位数总是一个真实出现过的薪资数字，不会造出市场上不存在的值；样本量小时也不会被两侧极值拉动。变更此口径必须全量重算历史（见本节末"口径漂移"）。
-- **投递竞争度**：`application_count / max(vacancies, 1)`。
+- **投递竞争度（spec §3.6 修正）**：`application_count / max(1, 在架天数)`（日均、中位数），同法给 `views/day` 与投递/浏览转化率；`view_count`/`application_count` 是采集时刻累计值快照，故只报日均、不暗示时间维度。旧公式 `application_count / max(vacancies, 1)` 已废弃——它度量的是岗位年龄而非竞争度。
 
 刷新/重贴判定信号表（与 [02](02-design.md) §4.1 upsert 逻辑对应）：
 
@@ -245,11 +252,30 @@ CREATE TABLE ingest_run (
 | 复制成新 uuid | 新 uuid + fp 命中 | 重贴，走 `job_repost` 归组 |
 | 真新职位 | 新 uuid + fp 未命中 | 新职位，计入 |
 
+### 6.1 求职者站点指标（`internal/metric`，spec §3）
+
+统计页（`/` `/tech` `/pay` `/companies`）与周报共用 `internal/metric` 纯聚合层，下列口径与 §6 一致或为其推广：
+
+| 指标 | 口径 | 抑制门槛 |
+|---|---|---|
+| 技术动量（pp） | `share_W(t) − mean(share_{W-1..W-4}(t))`；分母为**已富化**岗位（`EXISTS(job_tech) OR EXISTS(enrich_done)`）；W = 最后一个已完成 ISO 周（当周永远部分数据，排除） | 本周计数 <10 或已完成周数 <5 → 不参与升降榜 |
+| 技术薪资溢价 | `median(提到 t 的岗位薪资) / median(全体) − 1`；滚动 90 天、月薪 + min/max 齐全；**跟随镜头重算**，无镜头时标注资历混杂 | 该技术公开薪资样本 n<20 |
+| 薪资分位数 | p25/p50/p75 用**最近秩** `vals[floor(q*n)]`（上侧约定，与 §6 上中位数一致）；网格 = 资历 × 方向 | 单元格 n<5 → `—(n=…)` |
+| 薪资透明率 | `salary_hidden=0 AND salary_min IS NOT NULL` 占比（整体 + 按 company_type）；**与中位数样本不同集合**——非月薪公开薪资也是透明 | — |
+| 岗位寿命 | `julianday(date(closed_at)) − julianday(date(posting_date))`；**只计已下架岗位**（右删失标注）；精度下限 1 天 | — |
+| 竞争度（日均） | 见 §6；按方向 × 资历给中位数 | `MinPostingsPerCompanyStat=5` |
+| 入门岗 | `(min_years_exp IS NOT NULL AND min_years_exp <= 2) OR (min_years_exp IS NULL AND seniority IN ('Intern','Junior'))`；给**绝对数**而非占比 | — |
+
+- **数据不足是一等状态**：每个 metric 模型带 `Coverage{weeks,samples,suppressed,reason}`，被抑制渲染 `—(n=…)` 或「需 N 周历史」，**永不渲染 0**（spec §5）。
+- 所有窗口为 SGT 日历期；滚动窗统一 **90 天**（锚点 = 请求时刻所属 SGT 日的日末）。
+- `weekly_metric` 另落 `tech_share` 与 `swe_enriched` 两行作历史审计（spec §3.1），展示只走现算，物化仅供审计与周报。
+- **能力边界**：竞争度只有快照、没有时间序列；页面不得暗示有趋势。若日后要做竞争度趋势，需 §8 的 `job_stats_snapshot`。
+
 ## 7. 分类体系演进闭环
 
 ```
 LLM 输出 → tech_taxonomy 归一失败 → unmapped_tech（计数累积）
-    → 每周人工审阅（周报 Data Quality 章节列出 Top 未映射词）
+    → 每周人工审阅（周报页脚数据质量行 + `/ops` 列出 Top 未映射词）
     → 增补 tech_taxonomy 别名 → 下轮 enrich 自动生效
     → 需要回填历史时：按 enrich_cache 重放归一（不重调 LLM）
 ```
