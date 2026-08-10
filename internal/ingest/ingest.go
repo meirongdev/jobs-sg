@@ -16,6 +16,11 @@ import (
 	"github.com/meirongdev/jobs-sg/internal/store"
 )
 
+// closeCoverageFloor is the fraction of the board's largest advertised size a
+// reconcile sweep must have walked before absence from it may close postings.
+// Rationale and the noise measurements behind 0.8 sit on the gate in Run.
+const closeCoverageFloor = 0.8
+
 // Config drives one ingest run.
 type Config struct {
 	DataDir          string
@@ -283,33 +288,63 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	// reconcile close logic is gated on a clean scan (docs/02 §4.1: success
 	// gate; partial scans must never mass-close).
 	if isReconcile && status == store.StatusSuccess {
-		// Deviation asks exactly one question: did this sweep come up short of
-		// the board it was walking? Short of it, "did not see it" stops being
-		// evidence that a posting is gone, so closing on absence is suspended.
+		// The gate asks exactly one question: is absence from this sweep
+		// evidence that a posting is gone? It is only if the sweep enumerated
+		// essentially the whole board. A clean reconcile scan already proves
+		// most of that structurally — reconcile never early-stops, so its only
+		// clean exit is the empty page, and the circuit breaker and page errors
+		// went status=partial above. The one failure left is the API quietly
+		// truncating pagination: an empty page arriving while most of the board
+		// was never served.
 		//
-		// Expiry closes anyway. expiry_date is MCF's own published end date for
-		// the posting, not an inference from absence, and a posting closed by it
-		// in error reopens the moment it is sighted again (UpsertJob sets
-		// closed_at=NULL). Suspending that branch too is what let one cautious
-		// night stall the lifecycle outright: between 2026-08-09 and this change
-		// the single reconcile that ever ran skipped its close pass, leaving all
-		// 11580 stored postings open — 2770 of them already past expiry.
+		// Coverage against the largest size the API claimed during the sweep is
+		// the detector for that. It is deliberately a loose floor, not a tight
+		// match: the advertised total is noisy — observed moving in a
+		// 75255↔83003 band (~9.3%) within one sweep whose walk was in fact
+		// complete — while truncation is never subtle, since stopping at a
+		// random page loses a large slice of the board. 80% sits at twice the
+		// worst noise observed and far above any truncation worth suspending
+		// the lifecycle over. What the floor lets through — a tail lost to
+		// churn, a slice the API hid — lands in miss_count++, and the two-miss
+		// rule plus reopen-on-sight absorb exactly that.
+		//
+		// Deviation against the final page's reading is still computed and
+		// recorded (jobs_sg_reconcile_scan_deviation_ratio), but as telemetry:
+		// it measures end-state agreement with the API and inherits the API's
+		// noise, so it observes rather than gates. Gating on it is how the
+		// close pass got stuck twice — first against max(total) (structurally
+		// biased upward), then against the last page (exposed to a dip landing
+		// exactly there).
+		//
+		// Expiry closes regardless of the gate. expiry_date is MCF's own
+		// published end date for the posting, not an inference from absence,
+		// and a posting closed by it in error reopens the moment it is sighted
+		// again (UpsertJob sets closed_at=NULL). Suspending that branch too is
+		// what let one cautious night stall the lifecycle outright: under the
+		// original all-or-nothing gate, the single reconcile that ever ran left
+		// all 11580 stored postings open — 2770 of them already past expiry.
+		coverage := 1.0
+		if summary.MaxTotal > 0 {
+			coverage = float64(summary.Jobs) / float64(summary.MaxTotal)
+		}
 		deviation := 0.0
 		if summary.Total > 0 {
 			deviation = float64(absInt(summary.Total-summary.Jobs)) / float64(summary.Total)
 		}
-		closeMissing := deviation < 0.02
+		closeMissing := coverage >= closeCoverageFloor
 		if !closeMissing {
 			// Deliberately not res.Errors++: this is a policy decision about what
 			// the sweep licenses, not a fault. Counting it as an ingest error fed
 			// jobs_sg_ingest_errors_total, whose alert means "MCF changed shape",
 			// and made a healthy-but-cautious night indistinguishable from a
 			// broken one. Recording the run partial is the honest signal, and it
-			// is what withholds last_success so JobsSgReconcileStale can fire.
+			// is what withholds the full_reconcile last_success so
+			// JobsSgReconcileStale can fire (the incremental stamp still moves —
+			// see store.LastSuccess — because the data itself is fresh).
 			res.CloseSkipped = true
 			status = store.StatusPartial
-			slog.Warn("reconcile came up short of the advertised board, closing on expiry only",
-				"dev", deviation, "scanned", summary.Jobs, "total", summary.Total,
+			slog.Warn("reconcile sweep covered too little of the advertised board, closing on expiry only",
+				"coverage", coverage, "dev", deviation, "scanned", summary.Jobs, "total", summary.Total,
 				"total_min", summary.MinTotal, "total_max", summary.MaxTotal)
 		}
 		// expiry_date arrives from MCF as a bare Singapore-local date

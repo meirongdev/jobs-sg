@@ -205,9 +205,13 @@ func (s *Server) renderMetrics(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("scan audit column: %w", err)
 	}
 	if haveAudit {
+		// Telemetry, not the gate: it compares against the *final page's*
+		// reading and inherits the API's noise (a dip landing on the last page
+		// reads as a big number here while the sweep was complete). The gate is
+		// coverage-based — see jobs_sg_reconcile_scan_coverage_ratio below.
 		deviation := &family{
 			name: "jobs_sg_reconcile_scan_deviation_ratio",
-			help: "How far the last reconcile's sweep came up short of the board size MCF advertised. The close-on-absence gate suspends above 0.02.",
+			help: "End-state disagreement between what the last reconcile walked and the board size on its final page. Telemetry only; the close gate reads coverage_ratio.",
 			typ:  "gauge",
 		}
 		var scanned, total int
@@ -226,6 +230,25 @@ func (s *Server) renderMetrics(ctx context.Context) (string, error) {
 			deviation.add("jobs_sg_reconcile_scan_deviation_ratio %g", d)
 		}
 
+		// The gate's actual input, so a skipped close is a graph, not a log
+		// line: scanned over the largest size the API claimed during the sweep.
+		coverage := &family{
+			name: "jobs_sg_reconcile_scan_coverage_ratio",
+			help: "Share of the advertised board (its largest reading during the sweep) the last reconcile actually walked. The close-on-absence gate suspends below 0.8.",
+			typ:  "gauge",
+		}
+		var covScanned, covMax int
+		found, err = s.scanRow(ctx, `
+			SELECT jobs_scanned, total_max FROM ingest_run
+			WHERE kind='full_reconcile' AND ended_at IS NOT NULL AND total_max > 0
+			ORDER BY id DESC LIMIT 1`, nil, &covScanned, &covMax)
+		if err != nil {
+			return "", fmt.Errorf("reconcile coverage: %w", err)
+		}
+		if found {
+			coverage.add("jobs_sg_reconcile_scan_coverage_ratio %g", float64(covScanned)/float64(covMax))
+		}
+
 		skipped := &family{
 			name: "jobs_sg_reconcile_close_skipped_total",
 			help: "Reconciles that declined to close postings on absence because their sweep came up short.",
@@ -238,7 +261,7 @@ func (s *Server) renderMetrics(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("reconcile close skipped: %w", err)
 		}
 		skipped.add("jobs_sg_reconcile_close_skipped_total %d", n)
-		families = append(families, deviation, skipped)
+		families = append(families, deviation, coverage, skipped)
 	}
 
 	backlog := &family{

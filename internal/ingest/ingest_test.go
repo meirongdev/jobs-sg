@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -581,32 +582,38 @@ func TestReconcileWithADroppedPostingSkipsClosing(t *testing.T) {
 // A transient spike in the advertised board size must not cost the reconcile
 // its close pass.
 //
-// This is the 2026-08-09 regression. Summary.Total latched max(page.Total) while
-// Summary.Jobs accumulated across a 25-minute sweep, so a peak was compared
-// against a sum: the deviation gate read 4.5% (85487 seen vs a 89531 that had
-// long since come down), suspended the close pass, marked the run partial, and
-// with it withheld the full_reconcile success timestamp — which is what
-// JobsSgIngestStale reads. One number moving mid-sweep took out the lifecycle
-// and the freshness alert together. Total now tracks the last page walked.
+// This is the 2026-08-09 regression, at its real magnitude. The advertised
+// total moved in a ~10% band during a sweep whose walk was complete; the
+// then-gate compared max(page.Total) against the accumulated scan and read a
+// phantom 4.5% deviation, suspended the close pass, marked the run partial, and
+// with it withheld the success timestamps JobsSgIngestStale reads. One number
+// moving mid-sweep took out the lifecycle and the freshness alert together.
+// The gate now reads coverage against that same maximum, with a floor loose
+// enough that advertised-size noise cannot reach it.
 func TestReconcileSurvivesATransientTotalSpike(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	runAt := time.Date(2026, 8, 6, 18, 15, 0, 0, time.UTC)
 	now := func() time.Time { return runAt }
 
-	// baseline stores a and b, neither expired
-	rt := &pageRT{pages: [][]mcf.Job{{sweJob("a", "2026-07-01"), sweJob("b", "2026-07-01")}}, total: 2}
+	// baseline stores 50 postings, none expired
+	var board []mcf.Job
+	for i := 0; i < 50; i++ {
+		board = append(board, sweJob(fmt.Sprintf("a%02d", i), "2026-07-01"))
+	}
+	rt := &pageRT{pages: [][]mcf.Job{board}, total: 50}
 	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: now, Delay: 0}); err != nil {
 		t.Fatal(err)
 	}
 
-	// The reconcile walks the board to its end and sees `a`; `b` is genuinely
-	// gone. Mid-sweep the API briefly advertises 500, then settles back to the 1
-	// posting actually there. The sweep is complete either way.
+	// The reconcile walks the board to its end and sees 49 of them (a00 is
+	// genuinely gone). Mid-sweep the API briefly advertises 55 — a ~12% spike,
+	// beyond anything the old 2% deviation gate could survive — then settles
+	// back to the 49 actually there. Coverage 49/55 ≈ 0.89 clears the floor.
 	rt2 := &pageRT{
-		pages:  [][]mcf.Job{{sweJob("a", "2026-07-01")}},
-		totals: []int{500, 1},
-		total:  1,
+		pages:  [][]mcf.Job{board[1:]},
+		totals: []int{55, 49},
+		total:  49,
 	}
 	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: now, Delay: 0, Reconcile: true})
 	if err != nil {
@@ -628,11 +635,11 @@ func TestReconcileSurvivesATransientTotalSpike(t *testing.T) {
 	}
 	defer db.Close()
 	var miss int
-	if err := db.QueryRowContext(ctx, "SELECT miss_count FROM job WHERE uuid='b'").Scan(&miss); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT miss_count FROM job WHERE uuid='a00'").Scan(&miss); err != nil {
 		t.Fatal(err)
 	}
 	if miss != 1 {
-		t.Errorf("b miss_count = %d, want 1 — the close pass should have run", miss)
+		t.Errorf("a00 miss_count = %d, want 1 — the close pass should have run", miss)
 	}
 	// and the audit records what the gate actually saw, which is the evidence
 	// that was missing when this fired in production
@@ -642,8 +649,61 @@ func TestReconcileSurvivesATransientTotalSpike(t *testing.T) {
 		WHERE kind='full_reconcile' ORDER BY id DESC LIMIT 1`).Scan(&scanned, &total, &tmax); err != nil {
 		t.Fatal(err)
 	}
-	if scanned != 1 || total != 1 || tmax != 500 {
-		t.Errorf("audit = scanned %d, total %d, max %d; want 1, 1, 500", scanned, total, tmax)
+	if scanned != 49 || total != 49 || tmax != 55 {
+		t.Errorf("audit = scanned %d, total %d, max %d; want 49, 49, 55", scanned, total, tmax)
+	}
+}
+
+// The advertised total dipping on the very last page must not cost the close
+// pass either — the mirror image of the spike, and the residual the last-page
+// reading left exposed: a gate on deviation-vs-final-page trips when a dip
+// lands exactly there, in the opposite direction of the 2026-08-09 failure.
+// Coverage against the sweep's maximum is immune to both directions.
+func TestReconcileSurvivesALastPageTotalDip(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	runAt := time.Date(2026, 8, 6, 18, 15, 0, 0, time.UTC)
+	now := func() time.Time { return runAt }
+
+	var board []mcf.Job
+	for i := 0; i < 50; i++ {
+		board = append(board, sweJob(fmt.Sprintf("a%02d", i), "2026-07-01"))
+	}
+	rt := &pageRT{pages: [][]mcf.Job{board}, total: 50}
+	if _, err := Run(ctx, Config{DataDir: dir, Transport: rt, Now: now, Delay: 0}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The reconcile sees 49 (a00 gone) and walks to the empty page — but that
+	// terminating page's total reads 43, a ~14% dip. Deviation against the
+	// final page is |43-49|/43 ≈ 14%; coverage is 49/50 = 0.98.
+	rt2 := &pageRT{
+		pages:  [][]mcf.Job{board[1:]},
+		totals: []int{50, 43},
+		total:  43,
+	}
+	res, err := Run(ctx, Config{DataDir: dir, Transport: rt2, Now: now, Delay: 0, Reconcile: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != store.StatusSuccess {
+		t.Errorf("status = %s, want success — a dip on the terminating page is API noise, not a short sweep", res.Status)
+	}
+	if res.CloseSkipped {
+		t.Error("close was skipped over a last-page dip the coverage floor should absorb")
+	}
+
+	db, err := store.Open(dir+"/jobs.db", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var miss int
+	if err := db.QueryRowContext(ctx, "SELECT miss_count FROM job WHERE uuid='a00'").Scan(&miss); err != nil {
+		t.Fatal(err)
+	}
+	if miss != 1 {
+		t.Errorf("a00 miss_count = %d, want 1 — the close pass should have run", miss)
 	}
 }
 
