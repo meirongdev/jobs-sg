@@ -120,19 +120,25 @@
 - Then C 的 `closed_at` 清为 NULL（reopen）
 - And C 不产生"新增"（新增量仍按 original_posting_date 归属）
 
-### Scenario: 扫描偏少的一轮只按到期关闭，不按缺席关闭
-- Given 扫描本身干净（无错误），但抓取条数与 API total（**最后一页**读数）偏差 ≥2%
+### Scenario: 覆盖率不足的一轮只按到期关闭，不按缺席关闭
+- Given 扫描本身干净（无错误），但覆盖率（走过的条数 / 本轮见过的最大 total）< 80%
 - When 对账结束
 - Then 未见且 `expiry_date < today` 的职位照常关闭——到期是 MCF 公布的事实，不是从缺席推断出来的
 - And 未见但未到期的职位 `miss_count` **不递增**（否则连续两轮不可信的扫描会累加成一次关闭）
 - And 标记 status='partial' 且 `close_skipped=1`
 - And **不**记入 `jobs_sg_ingest_errors_total`（这是判断，不是故障）
 
-### Scenario: 扫描中途 total 抬升不影响关闭判定
-- Given 扫描期间某一页的 API total 短暂跳高，到最后一页已回落
-- When 对账走到最后一页正常结束
-- Then 偏差按最后一页的 total 计算，关闭判定照常执行
-- And `total_max` 记下那次抬升，供事后核对
+### Scenario: total 的瞬时噪声不影响关闭判定（两个方向都是）
+- Given 扫描走完了整块板子（终止于空页、无错误）
+- When 某一页的 API total 短暂跳高（实测噪声带约 ±10%），或凹陷正好落在最后一页
+- Then 覆盖率仍 ≥80%，关闭判定照常执行
+- And `total_min`/`total_max` 记下摆动区间、偏差记入遥测指标，供事后核对
+
+### Scenario: 覆盖率跳闸的一轮仍算数据新鲜
+- Given 某轮对账因覆盖率不足被记 status='partial'（`close_skipped=1`、errors=0）
+- When /metrics 被抓取
+- Then `jobs_sg_last_success_timestamp_seconds{kind="incremental"}` 前移到该轮结束时刻（对账 ⊇ 增量，数据确实刷新了）
+- And `kind="full_reconcile"` 的成功戳**不**前移——生命周期没对账就是没对账，`JobsSgReconcileStale` 必须还能看见
 
 ---
 

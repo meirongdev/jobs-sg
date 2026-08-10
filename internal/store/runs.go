@@ -76,11 +76,34 @@ func (d *DB) RecordScanAudit(ctx context.Context, id int64, a ScanAudit) error {
 // LastSuccess returns the most recent success timestamp for a run kind
 // (web /metrics derive state from DB, not process memory — docs/02 §4.4).
 // modernc.org/sqlite returns timestamps as strings, so we parse them here.
+//
+// The incremental kind also accepts reconcile rows whose scan was clean
+// (errors=0), whatever their status. A reconcile does everything an
+// incremental does — walks the board, archives what it never stored, upserts
+// every candidate — so a clean sweep IS fresh data even when the close gate
+// declined to act on absence and the run went partial. Without this, one
+// cautious Sunday withheld both kinds' stamps at once and JobsSgIngestStale
+// spent 5–8 hours claiming data was stale that had just been fully refreshed.
+//
+// The asymmetry is the point: full_reconcile does NOT get the same treatment.
+// Its stamp means "the lifecycle was reconciled", and a close-skipped round is
+// precisely a round where it was not — that withheld stamp is what lets
+// JobsSgReconcileStale catch a gate stuck cautious for weeks. errors=0 (not
+// status) is the discriminator because a clean-scan close-skip is the only way
+// a reconcile goes partial without errors; ended_at IS NOT NULL keeps
+// still-running rows out.
 func (d *DB) LastSuccess(ctx context.Context, kind string) (time.Time, bool, error) {
+	query := `SELECT ended_at FROM ingest_run WHERE kind=? AND status='success' ORDER BY ended_at DESC LIMIT 1`
+	args := []any{kind}
+	if kind == RunIncremental {
+		query = `SELECT ended_at FROM ingest_run
+			WHERE (kind=? AND status='success')
+			   OR (kind=? AND errors=0 AND ended_at IS NOT NULL)
+			ORDER BY ended_at DESC LIMIT 1`
+		args = []any{RunIncremental, RunReconcile}
+	}
 	var s string
-	err := d.QueryRowContext(ctx,
-		`SELECT ended_at FROM ingest_run WHERE kind=? AND status='success' ORDER BY ended_at DESC LIMIT 1`,
-		kind).Scan(&s)
+	err := d.QueryRowContext(ctx, query, args...).Scan(&s)
 	if err == sql.ErrNoRows {
 		return time.Time{}, false, nil
 	}
