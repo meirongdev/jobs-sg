@@ -58,6 +58,10 @@ func main() {
 	}
 }
 
+// posting is the raw archived text of one posting, held between the archive walk
+// and the single Extract pass.
+type posting struct{ title, desc string }
+
 func run(dataDir string, apply bool, batchSize, top int) error {
 	ctx := context.Background()
 	// Read-write even for a dry run, so the dry run does not depend on a
@@ -87,32 +91,44 @@ func run(dataDir string, apply bool, batchSize, top int) error {
 	// postings the archive holds but enrich has never processed belong to the
 	// nightly backlog, and inserting rows for them here would take them out of
 	// it without the LLM layer ever seeing them.
-	latest := make(map[string][]store.TechRow, len(stored))
-	var records, notEnriched int
+	// Keyed raw text, not a computed tech set: a posting appears in the archive
+	// once per sighting (measured 2.27x on 2026-08-24) and only the last copy is
+	// used, so computing Extract inside the walk threw away 56% of its own work.
+	// Title and description are kept apart — the title contains spaces, so a
+	// concatenated form cannot be split back.
+	latest := make(map[string]posting, len(stored))
+	var records int
+	// ⚠️ Distinct uuids, not records. Every reconcile re-archives the whole board,
+	// so a record count reads an order of magnitude too high next to the posting
+	// counts it is printed beside — the exact trap scripts/reclassify documents
+	// and that this tool's first version copied without the lesson.
+	notEnriched := map[string]struct{}{}
 	err = mcf.WalkArchives(dataDir, func(_ string, j mcf.Job) error {
 		records++
 		if j.UUID == "" {
 			return nil
 		}
 		if _, ok := stored[j.UUID]; !ok {
-			notEnriched++
+			notEnriched[j.UUID] = struct{}{}
 			return nil
 		}
-		techs := tax.Extract(j.Title + " " + tech.StripHTML(j.Description))
-		out := make([]store.TechRow, 0, len(techs))
-		for _, t := range techs {
-			out = append(out, store.TechRow{Slug: t.Slug, Kind: t.Kind})
-		}
-		latest[j.UUID] = out
+		latest[j.UUID] = posting{title: j.Title, desc: j.Description}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
+	// One Extract per posting, after the walk. Must mirror the nightly rule layer's
+	// input exactly (internal/llm/enrich.go: title + " " + StripHTML(desc)) — the
+	// whole premise of a replay is bit-identical reproduction.
 	var work []store.RuleTechUpdate
 	added, removed := map[string]int{}, map[string]int{}
-	for uuid, techs := range latest {
+	for uuid, p := range latest {
+		techs := make([]store.TechRow, 0, 8)
+		for _, t := range tax.Extract(p.title + " " + tech.StripHTML(p.desc)) {
+			techs = append(techs, store.TechRow{Slug: t.Slug, Kind: t.Kind})
+		}
 		was, now := stored[uuid], store.SlugsOf(techs)
 		if slices.Equal(was, now) {
 			continue
@@ -133,7 +149,7 @@ func run(dataDir string, apply bool, batchSize, top int) error {
 	// thing and a diff of two reports is meaningful.
 	sort.Slice(work, func(i, j int) bool { return work[i].UUID < work[j].UUID })
 
-	report(records, len(stored), notEnriched, len(work), added, removed, top)
+	report(records, len(stored), len(notEnriched), len(work), added, removed, top)
 
 	if !apply {
 		fmt.Printf("\nDRY RUN — nothing written. Re-run with --apply to rewrite %d posting(s).\n", len(work))
@@ -149,16 +165,13 @@ func run(dataDir string, apply bool, batchSize, top int) error {
 		fmt.Println("\nNothing to write (taxonomy re-seeded).")
 		return nil
 	}
-	var written int
 	for start := 0; start < len(work); start += batchSize {
 		end := min(start+batchSize, len(work))
-		n, err := db.ApplyRuleTech(ctx, work[start:end])
-		if err != nil {
-			return fmt.Errorf("apply postings %d-%d (%d already committed): %w", start, end, written, err)
+		if err := db.ApplyRuleTech(ctx, work[start:end]); err != nil {
+			return fmt.Errorf("apply postings %d-%d (%d already committed): %w", start, end, start, err)
 		}
-		written += n
 	}
-	fmt.Printf("\nAPPLIED — rule-layer rows rewritten for %d posting(s).\n", written)
+	fmt.Printf("\nAPPLIED — rule-layer rows rewritten for %d posting(s).\n", len(work))
 	return nil
 }
 
@@ -166,7 +179,7 @@ func report(records, enriched, notEnriched, changed int, added, removed map[stri
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "archive records read\t", records, "\t(the same posting appears once per sighting)")
 	fmt.Fprintln(tw, "postings with rule rows\t", enriched, "\t(the replay population)")
-	fmt.Fprintln(tw, "archived, not yet enriched\t", notEnriched, "\t(left to the nightly backlog)")
+	fmt.Fprintln(tw, "archived, not yet enriched\t", notEnriched, "\t(distinct postings, left to the nightly backlog)")
 	fmt.Fprintln(tw, "postings whose tech set changes\t", changed, "")
 	tw.Flush()
 

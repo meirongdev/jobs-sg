@@ -59,10 +59,13 @@ func (d *DB) LoadRuleTech(ctx context.Context) (map[string][]string, error) {
 //
 // A uuid with no job row cannot occur here (callers diff against stored rows),
 // but the delete is harmless if it does: it removes nothing.
-func (d *DB) ApplyRuleTech(ctx context.Context, batch []RuleTechUpdate) (int, error) {
-	var written int
-	err := d.retryBusy(ctx, func() error {
-		written = 0
+//
+// Returns only error, unlike the sibling ApplyClassifications: there the written
+// count comes from RowsAffected and can be less than the batch, here every entry
+// is written unconditionally so the count is just len(batch) — derivable, and the
+// reset-on-retry dance retryBusy would need for it is pure overhead.
+func (d *DB) ApplyRuleTech(ctx context.Context, batch []RuleTechUpdate) error {
+	return d.retryBusy(ctx, func() error {
 		tx, err := d.BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -103,11 +106,9 @@ func (d *DB) ApplyRuleTech(ctx context.Context, batch []RuleTechUpdate) (int, er
 			if _, err := done.ExecContext(ctx, u.UUID, now); err != nil {
 				return err
 			}
-			written++
 		}
 		return tx.Commit()
 	})
-	return written, err
 }
 
 // SlugsOf returns the sorted slugs of a tech set, for comparing a recomputed

@@ -61,15 +61,11 @@ func TestApplyRuleTechReplacesOnlyRuleRows(t *testing.T) {
 	}
 	seedTechRows(t, db, ctx)
 
-	n, err := db.ApplyRuleTech(ctx, []RuleTechUpdate{{
+	if err := db.ApplyRuleTech(ctx, []RuleTechUpdate{{
 		UUID:  "u1",
 		Techs: []TechRow{{Slug: "go", Kind: "language"}, {Slug: "kubernetes", Kind: "tool"}},
-	}})
-	if err != nil {
+	}}); err != nil {
 		t.Fatalf("ApplyRuleTech: %v", err)
-	}
-	if n != 1 {
-		t.Errorf("wrote %d postings, want 1", n)
 	}
 	if got, want := techRows(t, db, ctx, "rule"), []string{"go", "kubernetes"}; !slices.Equal(got, want) {
 		t.Errorf("rule rows = %v, want %v (expressjs should be gone, kubernetes added)", got, want)
@@ -106,7 +102,7 @@ func TestApplyRuleTechMarksPostingsThatPredateEnrichDone(t *testing.T) {
 	}
 
 	// every match was a false positive → no rule rows left
-	if _, err := db.ApplyRuleTech(ctx, []RuleTechUpdate{{UUID: "u1"}}); err != nil {
+	if err := db.ApplyRuleTech(ctx, []RuleTechUpdate{{UUID: "u1"}}); err != nil {
 		t.Fatalf("ApplyRuleTech: %v", err)
 	}
 
@@ -133,7 +129,7 @@ func TestApplyRuleTechEmptySetClearsRows(t *testing.T) {
 
 	// A posting whose only matches were false positives ends with no rule rows
 	// at all — the case an upsert-based writer can never reach.
-	if _, err := db.ApplyRuleTech(ctx, []RuleTechUpdate{{UUID: "u1"}}); err != nil {
+	if err := db.ApplyRuleTech(ctx, []RuleTechUpdate{{UUID: "u1"}}); err != nil {
 		t.Fatalf("ApplyRuleTech: %v", err)
 	}
 	if got := techRows(t, db, ctx, "rule"); len(got) != 0 {

@@ -139,43 +139,36 @@ func (d *DB) HasColumn(ctx context.Context, table, column string) (bool, error) 
 // the intended trade — docs/03 §7 has the review loop end in an edit to
 // techSeeds, so a hand-inserted row is untracked state either way.
 //
-// ssoc_taxonomy is deliberately not pruned: its rows carry a human `note`
-// column filled in during review (docs/03 §7), so a row absent from ssocSeeds
-// may be hand-curated rather than retired.
+// ⚠️ ssoc_taxonomy is NOT pruned — but the reason first written here ("its rows
+// carry a human `note` column, so a row absent from ssocSeeds may be
+// hand-curated") does not survive reading the next statement: the ssoc upsert
+// below does `note=excluded.note`, so a hand-written note on any code that IS in
+// ssocSeeds is overwritten on every run. Hand-curation is protected only for
+// codes absent from the seed list — the arbitrary half.
+//
+// Honest statement of the current state: the asymmetry is untested, and the
+// tech-side argument above ("a hand-inserted row is untracked state either way")
+// applies here too. LoadSSOCMap reads the table, so dropping a line from
+// ssocSeeds is still exactly the no-op the tech prune was written to eliminate —
+// on the layer that decides is_swe/role_family for every posting, a larger blast
+// radius than one tech alias. Left as-is because changing it is a behaviour
+// change to classification rather than a cleanup: it needs a look at what the
+// live table actually holds beyond ssocSeeds first.
 func (d *DB) Seed(ctx context.Context) error {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	keep := make(map[string]bool, len(techSeeds))
-	for _, s := range techSeeds {
-		keep[s[0]] = true
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT alias FROM tech_taxonomy`)
-	if err != nil {
+	// Whole-table delete, then re-insert every seed: since techSeeds is the only
+	// source of aliases, the post-state is identical to computing the set
+	// difference and deleting just the retired rows — with one statement instead
+	// of a SELECT, a map, and N+1 round-trips. Safe as a truncate because the
+	// table is (alias PK, tech_slug, tech_kind) with no foreign keys pointing at
+	// it (job_tech.tech_slug is a plain column, not a reference), and both
+	// statements are in the same transaction, so no reader observes the gap.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tech_taxonomy`); err != nil {
 		return err
-	}
-	var retired []string
-	for rows.Next() {
-		var alias string
-		if err := rows.Scan(&alias); err != nil {
-			rows.Close()
-			return err
-		}
-		if !keep[alias] {
-			retired = append(retired, alias)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close()
-	for _, alias := range retired {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM tech_taxonomy WHERE alias=?`, alias); err != nil {
-			return err
-		}
 	}
 	for _, s := range techSeeds {
 		if _, err := tx.ExecContext(ctx,
