@@ -77,8 +77,8 @@ func TestApplyRuleTechReplacesOnlyRuleRows(t *testing.T) {
 	if got, want := techRows(t, db, ctx, "llm"), []string{"go", "python"}; !slices.Equal(got, want) {
 		t.Errorf("llm rows = %v, want %v — the replay must not touch the LLM layer", got, want)
 	}
-	// enrich_done stays as it was: the layer has still processed this posting,
-	// and clearing it would push it back into the nightly backlog.
+	// An existing marker keeps its original done_at: restamping it would claim
+	// the nightly run did work it did not.
 	var doneAt string
 	if err := db.QueryRowContext(ctx,
 		`SELECT done_at FROM enrich_done WHERE job_uuid='u1' AND source='rule'`).Scan(&doneAt); err != nil {
@@ -86,6 +86,40 @@ func TestApplyRuleTechReplacesOnlyRuleRows(t *testing.T) {
 	}
 	if doneAt != "then" {
 		t.Errorf("enrich_done.done_at = %q, want it untouched (%q)", doneAt, "then")
+	}
+}
+
+// A posting enriched before enrich_done existed has job_tech rows as its only
+// proof the layer ran. Emptying it must leave a marker behind, or it falls back
+// into enrichBacklog — 173 postings did exactly that on the 2026-08-24 replay.
+func TestApplyRuleTechMarksPostingsThatPredateEnrichDone(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	seedTechRows(t, db, ctx)
+	// drop the marker: this is the pre-enrich_done shape
+	if _, err := db.ExecContext(ctx,
+		`DELETE FROM enrich_done WHERE job_uuid='u1' AND source='rule'`); err != nil {
+		t.Fatalf("delete marker: %v", err)
+	}
+
+	// every match was a false positive → no rule rows left
+	if _, err := db.ApplyRuleTech(ctx, []RuleTechUpdate{{UUID: "u1"}}); err != nil {
+		t.Fatalf("ApplyRuleTech: %v", err)
+	}
+
+	var backlog int
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*) FROM job j
+		WHERE NOT EXISTS (SELECT 1 FROM job_tech t WHERE t.job_uuid=j.uuid AND t.source='rule')
+		  AND NOT EXISTS (SELECT 1 FROM enrich_done e WHERE e.job_uuid=j.uuid AND e.source='rule')`,
+	).Scan(&backlog); err != nil {
+		t.Fatalf("backlog count: %v", err)
+	}
+	if backlog != 0 {
+		t.Errorf("%d posting(s) fell back into the rule backlog; the replay must record that it processed them", backlog)
 	}
 }
 

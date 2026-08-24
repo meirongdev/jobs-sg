@@ -44,11 +44,18 @@ func (d *DB) LoadRuleTech(ctx context.Context) (map[string][]string, error) {
 // upsert can only ever add. Scoped to source='rule' in both statements, so a
 // posting's LLM rows survive untouched.
 //
-// enrich_done is deliberately left alone. The marker means "this layer has
-// processed this posting", which stays true across a replay — refreshing
-// done_at would rewrite ~7k rows to say the nightly run did something it
-// didn't, and clearing it would push every posting back into the backlog for
-// enrich to redo one at a time.
+// enrich_done is filled in but never refreshed, and the difference matters.
+//
+// Refreshing an existing marker's done_at would rewrite thousands of rows to
+// claim the nightly run just did work it didn't, so the insert is OR IGNORE.
+// But a *missing* marker has to be created: 4,140 postings were enriched before
+// enrich_done existed, and for those the job_tech rows are the only evidence the
+// layer ever ran (see enrich_done in schema.go — "the job_tech check keeps jobs
+// enriched before enrich_done existed out of the backlog"). Empty one of those
+// postings and it loses its only proof, landing back in enrichBacklog: measured
+// 173 postings on the 2026-08-24 replay. Writing the marker is also the honest
+// record — the rule layer *has* processed it, just now, and "processed, zero
+// matches" is a state only the marker can express.
 //
 // A uuid with no job row cannot occur here (callers diff against stored rows),
 // but the delete is harmless if it does: it removes nothing.
@@ -74,6 +81,15 @@ func (d *DB) ApplyRuleTech(ctx context.Context, batch []RuleTechUpdate) (int, er
 			return err
 		}
 		defer ins.Close()
+		// OR IGNORE, not upsert: create a missing marker, never restamp one that
+		// is already there.
+		done, err := tx.PrepareContext(ctx,
+			`INSERT OR IGNORE INTO enrich_done(job_uuid, source, done_at) VALUES(?,'rule',?)`)
+		if err != nil {
+			return err
+		}
+		defer done.Close()
+		now := NowUTC()
 
 		for _, u := range batch {
 			if _, err := del.ExecContext(ctx, u.UUID); err != nil {
@@ -83,6 +99,9 @@ func (d *DB) ApplyRuleTech(ctx context.Context, batch []RuleTechUpdate) (int, er
 				if _, err := ins.ExecContext(ctx, u.UUID, t.Slug, t.Kind); err != nil {
 					return err
 				}
+			}
+			if _, err := done.ExecContext(ctx, u.UUID, now); err != nil {
+				return err
 			}
 			written++
 		}
