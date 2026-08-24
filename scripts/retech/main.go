@@ -68,17 +68,13 @@ func run(dataDir string, apply bool, batchSize, top int) error {
 	}
 	defer db.Close()
 
-	// Seed first: the taxonomy in the table is what the rule layer reads, and
-	// on a database seeded by an older build it still holds retired aliases.
-	// Replaying against those would faithfully reproduce the bug being fixed.
-	if err := db.Seed(ctx); err != nil {
-		return fmt.Errorf("seed taxonomy: %w", err)
-	}
-	rows, err := db.LoadTechTaxonomy(ctx)
-	if err != nil {
-		return fmt.Errorf("load taxonomy: %w", err)
-	}
-	tax := tech.LoadTaxonomy(rows)
+	// Replay against store.TechSeeds(), not against tech_taxonomy as it stands.
+	// On a database seeded by an older build the table still holds retired
+	// aliases, and replaying with those would faithfully reproduce the bug being
+	// fixed. Seed makes the table equal the seed list, so reading the list is
+	// the same taxonomy — and it keeps the dry run genuinely read-only, which a
+	// Seed-then-read would not (Seed prunes).
+	tax := tech.LoadTaxonomy(store.TechSeeds())
 
 	stored, err := db.LoadRuleTech(ctx)
 	if err != nil {
@@ -143,8 +139,14 @@ func run(dataDir string, apply bool, batchSize, top int) error {
 		fmt.Printf("\nDRY RUN — nothing written. Re-run with --apply to rewrite %d posting(s).\n", len(work))
 		return nil
 	}
+	// Converge the table too: the nightly enrich reads tech_taxonomy, so leaving
+	// a retired alias there would keep it matching on new postings even though
+	// this replay just cleaned it out of the history.
+	if err := db.Seed(ctx); err != nil {
+		return fmt.Errorf("seed taxonomy: %w", err)
+	}
 	if len(work) == 0 {
-		fmt.Println("\nNothing to write.")
+		fmt.Println("\nNothing to write (taxonomy re-seeded).")
 		return nil
 	}
 	var written int

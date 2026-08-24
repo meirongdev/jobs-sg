@@ -429,3 +429,51 @@ func TestSeedRetiresDroppedAliases(t *testing.T) {
 		t.Errorf("hand-curated ssoc row deleted by Seed")
 	}
 }
+
+// scripts/retech replays the rule layer against TechSeeds() instead of reading
+// tech_taxonomy, so that a dry run stays read-only. That is only honest while
+// the two are the same taxonomy — this pins the equivalence, so a change to
+// Seed that inserts or filters anything extra fails here rather than silently
+// making the replay predict a result the real run will not produce.
+func TestTechSeedsMatchesSeededTable(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if err := db.Seed(ctx); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
+	inTable, err := db.LoadTechTaxonomy(ctx)
+	if err != nil {
+		t.Fatalf("LoadTechTaxonomy: %v", err)
+	}
+	key := func(r [3]string) string { return r[0] + "\x00" + r[1] + "\x00" + r[2] }
+	want := map[string]bool{}
+	for _, r := range TechSeeds() {
+		want[key(r)] = true
+	}
+	if len(inTable) != len(want) {
+		t.Fatalf("tech_taxonomy has %d rows, TechSeeds() has %d", len(inTable), len(want))
+	}
+	for _, r := range inTable {
+		if !want[key(r)] {
+			t.Errorf("tech_taxonomy row %v is not in TechSeeds()", r)
+		}
+	}
+}
+
+// TechSeeds must hand out a copy: the rule layer and the replay both hold the
+// result for the length of a run, and a caller sorting it in place would
+// reorder the package's own seed list.
+func TestTechSeedsReturnsCopy(t *testing.T) {
+	first := TechSeeds()
+	if len(first) == 0 {
+		t.Fatal("TechSeeds() is empty")
+	}
+	orig := first[0]
+	first[0] = [3]string{"tampered", "tampered", "tampered"}
+	if again := TechSeeds(); again[0] != orig {
+		t.Errorf("TechSeeds()[0] = %v after caller mutation, want %v", again[0], orig)
+	}
+}

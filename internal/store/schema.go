@@ -199,6 +199,16 @@ CREATE TABLE IF NOT EXISTS ingest_run (
 // precision on real postings and gate it if it is mostly wrong — that is what
 // tech.ambiguousAliases is for, and `express` sat here for weeks matching
 // "express themselves" and "Recruit Express Pte Ltd" because nobody did.
+// TechSeeds returns the seed alias rows. Since Seed prunes anything else out of
+// tech_taxonomy, this is also the effective taxonomy a seeded database holds —
+// which is what lets an offline replay predict its own result without writing
+// to the table first (scripts/retech).
+func TechSeeds() [][3]string {
+	out := make([][3]string, len(techSeeds))
+	copy(out, techSeeds)
+	return out
+}
+
 var techSeeds = [][3]string{
 	// languages
 	{"go", "go", "language"}, {"golang", "go", "language"},
