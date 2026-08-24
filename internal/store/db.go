@@ -124,13 +124,59 @@ func (d *DB) HasColumn(ctx context.Context, table, column string) (bool, error) 
 	return found, rows.Err()
 }
 
-// Seed upserts the tech_taxonomy and ssoc_taxonomy seed rows. Idempotent.
+// Seed upserts the tech_taxonomy and ssoc_taxonomy seed rows, and deletes
+// tech_taxonomy aliases the seed list no longer contains. Idempotent.
+//
+// The delete is what makes removing an alias mean anything. Upserting alone
+// leaves a retired alias live in every database that already has it — and
+// since LoadTaxonomy reads the table, not this list, the alias keeps matching
+// forever while the source says it is gone. That is not hypothetical: it is how
+// `express` would have survived being fixed (it matched "express themselves"
+// and "Recruit Express Pte Ltd" across 4% of postings).
+//
+// ⚠️ Consequence: techSeeds is the only way to add an alias. An alias inserted
+// into tech_taxonomy by hand is deleted by the next ingest/enrich run, which is
+// the intended trade — docs/03 §7 has the review loop end in an edit to
+// techSeeds, so a hand-inserted row is untracked state either way.
+//
+// ssoc_taxonomy is deliberately not pruned: its rows carry a human `note`
+// column filled in during review (docs/03 §7), so a row absent from ssocSeeds
+// may be hand-curated rather than retired.
 func (d *DB) Seed(ctx context.Context) error {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	keep := make(map[string]bool, len(techSeeds))
+	for _, s := range techSeeds {
+		keep[s[0]] = true
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT alias FROM tech_taxonomy`)
+	if err != nil {
+		return err
+	}
+	var retired []string
+	for rows.Next() {
+		var alias string
+		if err := rows.Scan(&alias); err != nil {
+			rows.Close()
+			return err
+		}
+		if !keep[alias] {
+			retired = append(retired, alias)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, alias := range retired {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM tech_taxonomy WHERE alias=?`, alias); err != nil {
+			return err
+		}
+	}
 	for _, s := range techSeeds {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO tech_taxonomy(alias, tech_slug, tech_kind) VALUES(?,?,?)

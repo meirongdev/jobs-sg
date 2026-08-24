@@ -190,12 +190,21 @@ CREATE TABLE IF NOT EXISTS ingest_run (
 
 // techSeeds: alias -> (tech_slug, tech_kind). MVP seed; extend via
 // unmapped_tech weekly review (docs/03 §7).
+//
+// This list is the whole truth about tech_taxonomy: Seed deletes any alias in
+// the table that is not here, so removing a line here retires the alias
+// everywhere instead of leaving it live in every existing database.
+//
+// ⚠️ Before adding an alias that is also an ordinary English word, measure its
+// precision on real postings and gate it if it is mostly wrong — that is what
+// tech.ambiguousAliases is for, and `express` sat here for weeks matching
+// "express themselves" and "Recruit Express Pte Ltd" because nobody did.
 var techSeeds = [][3]string{
 	// languages
 	{"go", "go", "language"}, {"golang", "go", "language"},
 	{"python", "python", "language"}, {"py", "python", "language"},
 	{"javascript", "javascript", "language"}, {"js", "javascript", "language"},
-	{"typescript", "typescript", "language"}, {"ts", "typescript", "language"},
+	{"typescript", "typescript", "language"},
 	{"java", "java", "language"}, {"kotlin", "kotlin", "language"},
 	{"swift", "swift", "language"}, {"rust", "rust", "language"},
 	{"cpp", "cpp", "language"}, {"c++", "cpp", "language"},
@@ -212,7 +221,9 @@ var techSeeds = [][3]string{
 	{"nextjs", "nextjs", "framework"}, {"next.js", "nextjs", "framework"},
 	{"spring", "spring", "framework"}, {"springboot", "spring", "framework"},
 	{"django", "django", "framework"}, {"flask", "flask", "framework"},
-	{"fastapi", "fastapi", "framework"}, {"express", "expressjs", "framework"},
+	{"fastapi", "fastapi", "framework"},
+	{"express", "expressjs", "framework"}, {"expressjs", "expressjs", "framework"},
+	{"express.js", "expressjs", "framework"},
 	{"rails", "rails", "framework"},
 	{"laravel", "laravel", "framework"}, {"dotnet", "dotnet", "framework"},
 	{"spark", "spark", "framework"}, {"hadoop", "hadoop", "tool"},
@@ -223,7 +234,7 @@ var techSeeds = [][3]string{
 	{"aliyun", "aliyun", "cloud"}, {"alibaba cloud", "aliyun", "cloud"},
 	{"cloudflare", "cloudflare", "cloud"},
 	// databases
-	{"postgresql", "postgresql", "database"}, {"postgres", "postgresql", "database"}, {"pg", "postgresql", "database"},
+	{"postgresql", "postgresql", "database"}, {"postgres", "postgresql", "database"},
 	{"mysql", "mysql", "database"},
 	{"mongodb", "mongodb", "database"}, {"mongo", "mongodb", "database"},
 	{"redis", "redis", "database"},
@@ -245,7 +256,7 @@ var techSeeds = [][3]string{
 	{"rabbitmq", "rabbitmq", "tool"}, {"kafka", "kafka", "tool"},
 	{"airflow", "airflow", "tool"}, {"dbt", "dbt", "tool"},
 	// ai
-	{"pytorch", "pytorch", "ai"}, {"tensorflow", "tensorflow", "ai"}, {"tf", "tensorflow", "ai"},
+	{"pytorch", "pytorch", "ai"}, {"tensorflow", "tensorflow", "ai"},
 	{"llm", "llm", "ai"}, {"rag", "rag", "ai"},
 	{"openai", "openai", "ai"}, {"chatgpt", "openai", "ai"},
 	{"langchain", "langchain", "ai"}, {"llama", "llama", "ai"},

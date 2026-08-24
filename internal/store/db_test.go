@@ -379,3 +379,53 @@ func TestJobSeekerQueriesUseIndexes(t *testing.T) {
 		}
 	}
 }
+
+// Seed must delete aliases the seed list dropped. Without this, retiring an
+// alias is a no-op against every database that already has it — the table, not
+// techSeeds, is what LoadTaxonomy reads.
+func TestSeedRetiresDroppedAliases(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	// stand in for an alias seeded by an older build and since removed
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO tech_taxonomy(alias, tech_slug, tech_kind) VALUES('ts','typescript','language')`); err != nil {
+		t.Fatalf("insert stale alias: %v", err)
+	}
+	if err := db.Seed(ctx); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM tech_taxonomy WHERE alias='ts'`).Scan(&n); err != nil {
+		t.Fatalf("count stale alias: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("retired alias 'ts' still present after Seed (%d rows)", n)
+	}
+	// and it must not have taken the live ones with it
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM tech_taxonomy WHERE alias='typescript'`).Scan(&n); err != nil {
+		t.Fatalf("count live alias: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("live alias 'typescript' rows = %d, want 1", n)
+	}
+	// ssoc_taxonomy carries hand-written notes, so it is not pruned
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO ssoc_taxonomy(ssoc_code, role_family, note) VALUES('99999','Other-IT','hand-curated')`); err != nil {
+		t.Fatalf("insert ssoc row: %v", err)
+	}
+	if err := db.Seed(ctx); err != nil {
+		t.Fatalf("second Seed: %v", err)
+	}
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM ssoc_taxonomy WHERE ssoc_code='99999'`).Scan(&n); err != nil {
+		t.Fatalf("count ssoc row: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("hand-curated ssoc row deleted by Seed")
+	}
+}

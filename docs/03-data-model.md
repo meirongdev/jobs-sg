@@ -290,11 +290,36 @@ CREATE TABLE ingest_run (
 ```
 LLM 输出 → tech_taxonomy 归一失败 → unmapped_tech（计数累积）
     → 每周人工审阅（周报页脚数据质量行 + `/ops` 列出 Top 未映射词）
-    → 增补 tech_taxonomy 别名 → 下轮 enrich 自动生效
-    → 需要回填历史时：按 enrich_cache 重放归一（不重调 LLM）
+    → 改 store.techSeeds（**不是**直接 INSERT 进表，见下）
+    → 下轮 enrich 对**新**职位生效；已富化的历史要跑 scripts/retech
+    → 需要回填 LLM 层时：按 enrich_cache 重放归一（不重调 LLM）
 ```
 
 `ssoc_taxonomy` 同理：新出现的 ssoc_code 在周报中列出，人工核定后入表。
+
+### 7.1 别名表的三条硬约束（都是踩过的）
+
+1. **`techSeeds` 是 `tech_taxonomy` 的唯一真相源**。`store.Seed` 会删掉表里
+   不在 seed 列表中的别名 —— 否则删一行代码对**已存在的库**是空操作，而
+   `LoadTaxonomy` 读的是表不是代码，退役的别名会永远继续命中。代价是手工
+   `INSERT` 进表的别名会被下一次 ingest/enrich 清掉。
+   （`ssoc_taxonomy` 不剪枝：它的 `note` 列是人工核定内容。）
+
+2. **改别名表不会修正历史**。`enrichBacklog` 跳过已有 `job_tech` 行或
+   `enrich_done` 标记的职位，所以修好的规则只对新职位生效，已富化的职位永远保留
+   旧结论、周报历史也一直错。修完跑 `go run ./scripts/retech --data-dir ./data`
+   （dry run，`--apply` 落库；只重放 rule 层，`source='llm'` 的行不动）。
+
+3. **别名如果同时是普通英文词，先量精度再加**。规则层是纯文本词边界匹配，分不清
+   词义。2026-08-24 实测（一天归档里 483 条 IT 职位，人工判定）：
+   `express` 24 命中只有 6 条是真的（25%）—— 剩下的是 "express themselves"
+   和 "Recruit Express Pte Ltd"；`go` 26 命中 17 真（65%）—— 假阳性是
+   "go-to-market"、"go-live"、"go-getter"、"go/no-go"。这类别名要进
+   `tech.ambiguousAliases`，只在**技术枚举上下文**里匹配（一侧紧邻分隔符）。
+   加了门之后：`express` 5 命中 5 真，`go` 17 命中 16 真。
+   ⚠️ 门是有代价的（会漏掉 "Node.js Express REST APIs" 这种散文里的真命中），
+   所以**只给实测精度差的别名加**：同批实测 `spark` 10/10、`node` 27/29、
+   `swift` 9/10、`git`/`js` 全对，这些**故意不加门**。
 
 ## 8. 可选扩展表（默认不建，Phase 2+ 按需）
 

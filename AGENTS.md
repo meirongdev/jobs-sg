@@ -21,6 +21,7 @@ make tidy    # tidy go modules
 go run ./scripts/genfixture  # regenerate fixtures deterministically
 go run ./scripts/taxonomyaudit --data-dir ./data  # SSOC/tech taxonomy coverage report
 go run ./scripts/reclassify --data-dir ./data     # replay the classify layer over raw/ (dry run; --apply to write)
+go run ./scripts/retech --data-dir ./data         # replay the rule-layer tech extraction over raw/ (dry run; --apply to write)
 ```
 
 Local smoke (needs MCF API access):
