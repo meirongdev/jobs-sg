@@ -67,7 +67,7 @@ const marketTmpl = `<!DOCTYPE html>
 {{if .WorkModes}}
 <h3>By work arrangement</h3>
 {{bar .WorkModes 5}}
-<p class="note">Postings that say nothing about arrangement are counted as Onsite, which is what MCF's field implies but not what every employer means.</p>
+<p class="note">MCF's arrangement field mostly covers scheduling, not location — only Telecommuting and Flexi-Place count as Remote/Hybrid, so postings with no location signal are Unknown.</p>
 {{end}}
 {{if .Employment}}
 <h3>By employment type</h3>
