@@ -30,7 +30,7 @@
 | 存储 | PostgreSQL + pgvector + S3/MinIO | SQLite(回滚日志) + PVC 上的 gzip JSON 归档 | 年增 ~145k 行，SQLite 绰绰有余；常驻内存 0 |
 | 去重 | job_id + MinHash + embedding 相似度 | `uuid` / `jobPostId` / `UEN` 精确键 | 官方主键存在，模糊匹配无必要 |
 | 向量库 | pgvector / Chroma | **不引入** | Bifrost 两个 provider 均 `embedding: false` [已验证] |
-| LLM 分类 | Claude / GPT-4o（付费 API） | Bifrost → DGX Spark 本地模型 | 已有网关 + 本地推理，成本 $0 |
+| LLM 分类 | Claude / GPT-4o（付费 API） | DGX Spark 本地模型（tailnet 直连 vLLM） | 本地推理，成本 $0 |
 | 报告 | Markdown → PDF → Slack/Email | 静态 HTML（`jobs.meirong.dev`）+ Telegram | 复用现有 Cilium Gateway 与 Telegram 通道 |
 
 ---
@@ -41,7 +41,7 @@
 
 | 判据 | homelab | oracle-k3s | 权重 |
 |---|---|---|---|
-| Bifrost LLM 网关 | 同集群 Service 直连 | 需绕公网或 ClusterMesh | **高** |
+| LLM 端点 | 同集群 Service 直连 | 需绕公网或 ClusterMesh | **高** |
 | Prometheus / ServiceMonitor | 原生 | 需改 otel-collector 配置 | 中 |
 | 出口 IP 性质 | 住宅 IP | 日本机房 IP | 中（API 场景已降权） |
 | CPU 架构 | amd64 | arm64，需多架构镜像 | 中 |
@@ -50,7 +50,9 @@
 
 内存是唯一指向 oracle 的强判据，而本设计已把常驻内存压到 ~64Mi（无 DB 服务端、无调度器、无浏览器），使该判据失效。LLM 网关同集群 + Prometheus 原生 + amd64 三项合力指向 homelab。
 
-**迁移出口（预先设计，不事后重构）**：所有出集群依赖只有 Bifrost 与 Telegram，均通过环境变量注入。若日后 homelab 内存告急，迁 oracle 只需：
+> **2026-09 更新**：Bifrost 网关退役后 enrich 经 tailnet 直连 DGX 的 vLLM，「同集群」这条判据不再偏向 homelab（tailnet 上哪都够得着）。结论未变——Prometheus 原生与 amd64 两项仍在，且迁移出口只是改 `LLM_BASE_URL`。
+
+**迁移出口（预先设计，不事后重构）**：所有出集群依赖只有 LLM 端点与 Telegram，均通过环境变量注入。若日后 homelab 内存告急，迁 oracle 只需：
 ① 镜像已多架构（GH Actions `platforms` 含 arm64）；② `LLM_BASE_URL` 改 `https://llm.meirong.dev`；③ manifests 移到 `cloud/oracle/manifests/`，Gateway 名改 `oracle-gateway`；④ metrics 改 otel-collector 抓取。**无代码改动。**
 
 ---
@@ -66,11 +68,11 @@
                     │  └────────────────┘           │  └─ raw/YYYY-MM-DD/*.jsonl.gz│            │
                     │                                └──────────────┬───────────────┘            │
                     │  ┌────────────────┐   读写                     │  只读                      │
- bifrost.bifrost.svc│◀─┤ CronJob enrich │◀──────────────────────────┤                            │
- :8080 (virtual key)│  │ 每日 03:10 SGT │                            │                            │
-   ↓ tailnet        │  └────────────────┘                            │                            │
- DGX Spark / M2     │                                                │                            │
- (本地模型, $0)      │  ┌────────────────┐   读写                     │                            │
+ DGX Spark (tailnet)│◀─┤ CronJob enrich │◀──────────────────────────┤                            │
+ vLLM :8000, direct │  │ 每日 03:10 SGT │                            │                            │
+ local model, $0    │  └────────────────┘                            │                            │
+                    │                                                │                            │
+                    │  ┌────────────────┐   读写                     │                            │
                     │  │ CronJob report │◀───────────────────────────┤                            │
                     │  │ 周一 09:00 SGT │───┐                        │                            │
                     │  └────────────────┘   │ 推送                    │                            │
@@ -209,18 +211,19 @@ while true:
 1. **规则层（先跑，永远跑）**：`tech_taxonomy` 别名表 + 词边界正则扫描。覆盖高频确定项（python/java/go/react/kubernetes/aws/…），零成本、可复现。
 2. **LLM 层（补充，允许失败）**：title + 去 HTML 描述（截断 4000 字符）交给本地模型，要求返回严格 JSON：`{"languages":[],"frameworks":[],"cloud":[],"databases":[],"tools":[],"ai":[]}`。输出经 `tech_taxonomy` 归一后写 `job_tech(source='llm')`；无法归一的词落 `unmapped_tech` 供每周人工审阅——**这是分类体系持续演进的入口**（见 03 §7）。
 
-**调用方式**（Bifrost，OpenAI 兼容）：
+**调用方式**（OpenAI 兼容）：
 
 ```
-POST http://bifrost.bifrost.svc.cluster.local:8080/v1/chat/completions
-Header: x-bf-vk: <virtual key, 来自 Vault>
-Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature": 0}
+POST http://<LLM_BASE_URL>/v1/chat/completions
+Body:  {"model": "<LLM_MODELS 第一项>", "messages":[...], "temperature": 0}
 ```
 
-- **并发 3**，超时 60s/条，失败重试 1 次。~400 条/天 → 约 5–10 分钟。
-- **缓存必做**：先查 `enrich_cache[description_sha256, model, prompt_version]`。`repostCount` 表明重贴常见，命中率预期高。
-- **fail-open**：Bifrost 不可达 / 401 / DGX 关机 → 记 `errors`，保留规则层结果，`status='partial'`，**作业退出码 0**（不触发 CronJob 失败告警风暴），由 `JobsSgEnrichBacklog` 告警反映积压。
-- **模型降级链**：`custom_dgx` → `custom_m2` → 纯规则。环境变量配置优先级列表。
+端点、模型、超时、并发、思考开关、以及任何模型特有的请求字段**全部是 `LLM_*` 环境变量**，换模型是改清单而不是发版；变量清单与换模型步骤见 [09](09-deploy-runbook.md) §3.2。当前直连 DGX 上的 vLLM（Bifrost 网关 2026-09 退役），端点不要凭证。
+
+- **并发 8**，超时 300s/条，失败重试 1 次（三者分别由 `LLM_CONCURRENCY` / `LLM_TIMEOUT` / `LLM_RETRIES` 配置）。实测 `qwen38-flash-next` 单次均值 18.7s、并发 8 下 15 条/分钟（2026-09-03）。
+- **缓存必做**：先查 `enrich_cache[description_sha256, model, prompt_version]`。`repostCount` 表明重贴常见，命中率预期高。**model 与 prompt_version 都是缓存键的一部分**，所以换模型或换提示词等于换一套缓存，旧结果不会被误用——`LLM_PROMPT` 改了而没显式给版本号时，版本号会按提示词内容自动派生。
+- **fail-open**：端点不可达 / 401 / DGX 关机 → 记 `errors`，保留规则层结果，`status='partial'`，**作业退出码 0**（不触发 CronJob 失败告警风暴），由 `JobsSgEnrichBacklog` 告警反映积压。
+- **模型降级链**：`LLM_MODELS` 逗号分隔、第一项优先，全部失败退回纯规则层。
 
 ### 4.3 report（周报）
 
@@ -270,7 +273,7 @@ Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature
 - **SGT 日历日分桶**：时间戳按 UTC 存储，而 02:15 SGT 的 ingest 落在前一天 18:15 UTC——按 UTC 日分组会把每次采集记到前一天。SQL 侧用 `date(col,'+8 hours')`，Go 侧用 `.In(sgt)`。
 - 日页面窗口默认 30 天（`?days=` 可调，上限 90），并裁掉管线首次运行之前的空白日；活跃日之间的空缺**保留**，那是漏跑信号。
 - `/metrics` 从 `ingest_run` 与 `job` 表现算（状态在 DB 不在进程内，重启无损）
-- **不做认证**——内容是公开就业市场统计，无个人数据。若日后需要，按 bifrost 模式加 oauth2-proxy。
+- **不做认证**——内容是公开就业市场统计，无个人数据。若日后需要，再加 oauth2-proxy。
 - **但 `/metrics` 不属于「内容」**：它暴露 enrich 积压深度、各作业耗时、累计错误数，是运维姿态而非就业数据。HTTPRoute 是 `PathPrefix: /`，因此挂在公共 mux 上的一切都等于挂在 `jobs.meirong.dev` 上。故 `/metrics` 绑到**独立监听端口 9090**（`--metrics-addr`），Service 开第二个 `metrics` 端口供 ServiceMonitor 集群内抓取，HTTPRoute 不指向它。
   选择拆监听端口而非在 Gateway 上加过滤：这样该性质由进程本身保证，日后改路由也重新暴露不了从未绑到公共监听器上的东西。两个监听器任一启动失败即整进程退出——只服务页面却静默丢掉 `/metrics` 的 Pod 看起来是健康的，而 [04](04-operations.md) §3.2 的每一条告警都会瞎掉。
 
@@ -315,7 +318,7 @@ Body:   {"model": "custom_dgx/deepseek-v4-flash", "messages":[...], "temperature
 | 全量对账分页竞态误关职位（v2.1 识别） | 在架量失真 | success 门控 + `miss_count` 两周判定 + reopen 自愈（§4.1） |
 | 单节点 + RWO PVC | 扩节点后 Pod Pending | manifests 预写 `nodeAffinity` 注释，扩节点时启用 |
 | SQLite 单写者 | 作业重叠时阻塞 | `Forbid` + 错开时间 + `busy_timeout` |
-| DGX Spark 关机 | LLM 富化停摆 | fail-open + 降级 `custom_m2` + 纯规则；`JobsSgEnrichBacklog` 反映积压 |
+| DGX Spark 关机 | LLM 富化停摆 | fail-open + `LLM_MODELS` 降级链 + 纯规则；`JobsSgEnrichBacklog` 反映积压 |
 | homelab 内存进一步吃紧 | 作业被 OOM kill | 已设 limits；§1 迁移出口保持可用（多架构镜像 + 环境变量化依赖） |
 | LLM 幻觉污染指标 | 趋势数字失真 | 数字全由 SQL 算；LLM 只写解读段落且只喂算好的数 |
 | 分类口径漂移 | 跨周不可比 | 口径写进代码注释 + `weekly_metric` 保留 `computed_at`；口径变更后全量重算历史 |

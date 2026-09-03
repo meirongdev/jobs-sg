@@ -21,7 +21,7 @@
 一条"采集 → 富化 → 指标 → 展示"的批处理流水线，全部跑在 `k3s-homelab`（ns `jobs-sg`）：
 
 1. **ingest（每日 02:15 SGT）**：分页拉取 MCF 公开 JSON API → 全类目归档到 gzip JSONL → 候选职位宽口径入 SQLite；周日附加全量在架对账，识别下架（`closed_at`）。
-2. **enrich（每日 03:10 SGT）**：对新增/描述变更职位做技术栈抽取——规则层（`tech_taxonomy` + 正则）永远先跑，LLM 层（Bifrost → 本地模型）补充且允许失败，输出归一后写 `job_tech`，无法归一的落 `unmapped_tech`。
+2. **enrich（每日 03:10 SGT）**：对新增/描述变更职位做技术栈抽取——规则层（`tech_taxonomy` + 正则）永远先跑，LLM 层（tailnet 直连本地模型）补充且允许失败，输出归一后写 `job_tech`，无法归一的落 `unmapped_tech`。
 3. **report（周一 09:00 SGT）**：物化周度聚合表 `weekly_metric` → 渲染自包含 HTML + Markdown 周报（7 节，数字来自 `internal/metric`）→ 推 Telegram 摘要 + 链接。
 4. **web（常驻）**：只读打开 SQLite，现算求职者统计页（`/` `/tech` `/pay` `/companies`，60s 缓存）与运维视图（`/ops`、`/ops/{date}`），托管周报归档（`/reports`、`/w/{YYYY-Www}`），暴露 `/healthz`、`/robots.txt`；`/metrics` 仅在独立 9090 端口（集群内抓取）。`/daily` 与 `/daily/{date}` 301 → `/ops`。
 
@@ -70,8 +70,8 @@
 28. As 维护者, I want LLM 层只对 title + 去 HTML 描述（截断 4000 字符）抽取技术栈并返回严格 JSON, so that 输出结构化、可归一。
 29. As 维护者, I want LLM 输出经 `tech_taxonomy` 归一后写 `job_tech`、无法归一的落 `unmapped_tech`, so that 分类体系有持续演进入口。
 30. As 维护者, I want enrich 按 `description_sha256 + model + prompt_version` 缓存, so that 重贴/未变职位不重复推理、省钱省时。
-31. As 维护者, I want enrich fail-open：Bifrost 不可达/401/DGX 关机时保留规则层结果、标 partial、退出码 0, so that 不触发告警风暴、不阻塞数据完整性。
-32. As 维护者, I want 模型降级链 `custom_dgx → custom_m2 → 纯规则`, so that 单个模型故障不影响整体可用性。
+31. As 维护者, I want enrich fail-open：LLM 端点不可达/401/DGX 关机时保留规则层结果、标 partial、退出码 0, so that 不触发告警风暴、不阻塞数据完整性。
+32. As 维护者, I want 模型降级链按 `LLM_MODELS` 顺序依次尝试、全失败退回纯规则, so that 单个模型故障不影响整体可用性。
 33. As 维护者, I want 每轮记录 `llm_calls` / `llm_cached` / `errors` 与 backlog, so that LLM 长期不可用可被 `JobsSgEnrichBacklog` 告警发现。
 
 ### 指标与周报（report）

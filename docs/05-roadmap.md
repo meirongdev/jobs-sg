@@ -41,7 +41,7 @@
 > 本阶段**代码基本已完成**，卡在部署与真实环境验证上。
 
 - [x] 每周全量对账 + `closed_at` 生命周期（success 门控 + `miss_count` 两周判定 + reopen，[02](02-design.md) §4.1）
-- [x] `enrich` 接 Bifrost（缓存、降级链、fail-open、思考模式开关）
+- [x] `enrich` 接本地 LLM（缓存、降级链、fail-open、思考模式开关；模型相关参数全部环境变量化，见 [09](09-deploy-runbook.md) §3.2）
 - [x] `/metrics`（独立 9090 端口）+ ServiceMonitor + 5 条 PrometheusRule
 - [x] Telegram 周报推送（独立话题，不占告警话题；错误不打印 bot token）
 - [ ] restic 备份接入（`jobs.db` + **归档目录**）+ **实际恢复演练**（`PRAGMA integrity_check` 通过）
