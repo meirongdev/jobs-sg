@@ -20,7 +20,7 @@ this repo.
    (with `ignoreDifferences` for batch/Job).
 
 3. Create the Vault secret `secret/homelab/jobs-sg` with keys:
-   `bifrost-vk`, `telegram-bot-token`, `telegram-chat-id`, `telegram-thread-id`
+   `telegram-bot-token`, `telegram-chat-id`, `telegram-thread-id`
    and an ExternalSecret + `jobs-sg-secrets` (docs/04 §5).
 
 4. `kubectl apply -n argocd -f argocd/applications/jobs-sg.yaml` and let

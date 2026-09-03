@@ -21,6 +21,8 @@ type Enricher struct {
 	Model         string
 	PromptVersion string
 	Concurrency   int
+	// Attempts per posting before failing open; zero means DefaultAttempts.
+	Attempts int
 }
 
 // EnrichResult summarises an enrich run for ingest_run.
@@ -36,13 +38,19 @@ type EnrichResult struct {
 // the LLM layer supplements, is cached, and fails open.
 func (e *Enricher) Run(ctx context.Context) (EnrichResult, error) {
 	if e.Concurrency <= 0 {
-		e.Concurrency = 3
+		e.Concurrency = DefaultConcurrency
+	}
+	if e.Attempts <= 0 {
+		e.Attempts = DefaultAttempts
 	}
 	if e.Model == "" {
-		e.Model = "custom_dgx/deepseek-v4-flash"
+		// Keep one source of truth for the model id: it is the LLM cache key and
+		// the job_tech provenance, so a second literal here would silently split
+		// the cache after a swap.
+		e.Model = DefaultModelChain[0]
 	}
 	if e.PromptVersion == "" {
-		e.PromptVersion = "v1"
+		e.PromptVersion = DefaultPromptVersion
 	}
 	res := EnrichResult{}
 	runID, err := e.DB.StartRun(ctx, store.RunEnrich)
@@ -180,8 +188,9 @@ func (e *Enricher) enrichOne(ctx context.Context, ref store.JobRef, desc string)
 	}
 
 	var r Result
-	// retry once (design: 失败重试 1 次)
-	for attempt := 0; attempt < 2; attempt++ {
+	// Configurable via LLM_RETRIES; see DefaultAttempts for why retrying a
+	// timeout is usually paying twice for the same outcome.
+	for attempt := 0; attempt < e.Attempts; attempt++ {
 		r, err = e.LLM.Extract(ctx, ref.Title, desc)
 		if err == nil {
 			break

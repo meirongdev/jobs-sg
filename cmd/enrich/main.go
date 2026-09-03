@@ -1,6 +1,9 @@
 // Command enrich runs rule-layer (always) + LLM-layer (optional) technology
 // extraction. It fails open: LLM errors keep rule results and exit 0
 // (docs/02 §4.2); JobsSgEnrichBacklog surfaces the backlog.
+//
+// Every LLM knob is an LLM_* environment variable read by llm.ConfigFromEnv, so
+// swapping the model or the endpoint is a manifest edit. See docs/09 §3.2.
 package main
 
 import (
@@ -8,9 +11,7 @@ import (
 	"flag"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
-	"time"
+	"sort"
 
 	"github.com/meirongdev/jobs-sg/internal/llm"
 	"github.com/meirongdev/jobs-sg/internal/store"
@@ -41,89 +42,32 @@ func main() {
 	}
 	tax := tech.LoadTaxonomy(rows)
 
-	// Model ids are backend-specific, so the chain must be configurable:
-	// Bifrost routes on provider-prefixed names (custom_dgx/deepseek-v4-flash),
-	// while a raw vLLM server serves the bare id (deepseek-v4-flash) and 404s the
-	// prefixed form. LLM_MODELS (comma-separated, first = preferred) overrides the
-	// default Bifrost chain, so pointing LLM_BASE_URL straight at a vLLM endpoint
-	// needs no code change:
-	//
-	//   LLM_BASE_URL=http://<dgx>:8000  LLM_MODELS=deepseek-v4-flash
-	//
-	// The default is unchanged, so existing Bifrost deployments are unaffected.
-	modelChain := []string{"custom_dgx/deepseek-v4-flash", "custom_m2"}
-	if v := os.Getenv("LLM_MODELS"); strings.TrimSpace(v) != "" {
-		var models []string
-		for _, m := range strings.Split(v, ",") {
-			if m = strings.TrimSpace(m); m != "" {
-				models = append(models, m)
-			}
-		}
-		if len(models) > 0 {
-			modelChain = models
-		}
+	cfg, warnings := llm.ConfigFromEnv(os.Getenv)
+	for _, w := range warnings {
+		// A dropped knob is otherwise invisible: enrich would run happily with a
+		// setting the operator believes is in effect.
+		slog.Warn("llm config", "problem", w)
 	}
 
 	var extractor llm.Extractor
-	if baseURL := os.Getenv("LLM_BASE_URL"); baseURL != "" {
-		// VirtualKey rides in the x-bf-vk header. Bifrost requires it (the
-		// governance PreHook applies even in-cluster); a plain vLLM server ignores
-		// the unknown header, so leaving it empty for a direct backend is fine.
-		vk := os.Getenv("BIFROST_VK")
-		// LLM_TIMEOUT (seconds) per call; 0/unset => llm.DefaultTimeout. Reasoning
-		// models on a shared endpoint routinely need more than a minute — see the
-		// DefaultTimeout comment for the measurement behind this.
-		timeout := time.Duration(0)
-		if v := strings.TrimSpace(os.Getenv("LLM_TIMEOUT")); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				timeout = time.Duration(n) * time.Second
-			} else {
-				slog.Warn("ignoring invalid LLM_TIMEOUT", "value", v)
-			}
-		}
-		// LLM_THINKING=false stops a reasoning model emitting its chain of thought:
-		// ~19x faster because reasoning is ~95% of the output tokens, at the cost of
-		// slightly noisier per-job tags. Intended for burning down a large backlog;
-		// default (unset/true) keeps the request body unchanged.
-		disableThinking := false
-		if v := strings.TrimSpace(os.Getenv("LLM_THINKING")); v != "" {
-			if b, err := strconv.ParseBool(v); err == nil {
-				disableThinking = !b
-			} else {
-				slog.Warn("ignoring invalid LLM_THINKING (want true/false)", "value", v)
-			}
-		}
-		var chain []llm.Extractor
-		for _, m := range modelChain {
-			chain = append(chain, &llm.OpenAIExtractor{
-				BaseURL: baseURL, VirtualKey: vk, Model: m,
-				Timeout: timeout, DisableThinking: disableThinking,
-			})
-		}
-		extractor = llm.Chain{Extractors: chain}
-		eff := timeout
-		if eff <= 0 {
-			eff = llm.DefaultTimeout
-		}
-		slog.Info("llm enabled", "base_url", baseURL, "models", modelChain,
-			"timeout", eff.String(), "thinking", !disableThinking)
+	if cfg.Enabled() {
+		extractor = llm.Chain{Extractors: cfg.Extractors()}
+		// Log the effective configuration, not the requested one, so a swap can
+		// be verified from the job's first log line.
+		slog.Info("llm enabled",
+			"base_url", cfg.BaseURL,
+			"models", cfg.Models,
+			"auth", authSummary(cfg),
+			"timeout", cfg.EffectiveTimeout().String(),
+			"concurrency", cfg.EffectiveConcurrency(),
+			"attempts", cfg.EffectiveAttempts(),
+			"thinking", cfg.ThinkingSummary(),
+			"max_tokens", cfg.MaxTokens,
+			"prompt", cfg.PromptSummary(),
+			"prompt_version", cfg.EffectivePromptVersion(),
+			"extra_body", extraBodyKeys(cfg))
 	} else {
 		slog.Info("LLM_BASE_URL unset -> rule-only mode")
-	}
-
-	// LLM_CONCURRENCY tunes the bounded fan-out (Run() defaults to 3 when 0).
-	// The first run after a baseline scan faces a backlog of thousands, and at
-	// ~66s per call (measured, see llm.DefaultTimeout) concurrency 3 cannot drain
-	// it inside a sane activeDeadline; steady-state daily volume is a fraction of
-	// that. Keep it modest anyway — this fans out onto a shared endpoint, so the
-	// ceiling is the backend's spare capacity, not the local CPU.
-	concurrency := 0
-	if v := strings.TrimSpace(os.Getenv("LLM_CONCURRENCY")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			concurrency = n
-		} else {
-			slog.Warn("ignoring invalid LLM_CONCURRENCY", "value", v)
-		}
 	}
 
 	en := &llm.Enricher{
@@ -131,11 +75,14 @@ func main() {
 		DataDir:     *dataDir,
 		Taxonomy:    tax,
 		LLM:         extractor,
-		Concurrency: concurrency,
-		// Provenance recorded on job_tech rows — must name the model that actually
-		// ran, so it tracks the chain's first entry rather than a hardcoded id.
-		Model:         modelChain[0],
-		PromptVersion: "v1",
+		Concurrency: cfg.Concurrency,
+		// Provenance recorded on job_tech rows and part of the LLM cache key —
+		// must name the model that actually ran.
+		Model: cfg.PrimaryModel(),
+		// Part of the enrich cache key alongside Model, so it must track the
+		// prompt actually in use — ConfigFromEnv derives one for a custom prompt.
+		PromptVersion: cfg.EffectivePromptVersion(),
+		Attempts:      cfg.EffectiveAttempts(),
 	}
 	res, err := en.Run(context.Background())
 	if err != nil {
@@ -146,4 +93,23 @@ func main() {
 	if res.Status == store.StatusFailed {
 		os.Exit(1)
 	}
+}
+
+// authSummary names the auth header without logging the key.
+func authSummary(cfg llm.Config) string {
+	if cfg.APIKey == "" {
+		return "none"
+	}
+	return cfg.AuthHeader
+}
+
+// extraBodyKeys lists what LLM_EXTRA_BODY contributed, so an override that is
+// not taking effect is visible in the log.
+func extraBodyKeys(cfg llm.Config) []string {
+	keys := make([]string, 0, len(cfg.ExtraBody))
+	for k := range cfg.ExtraBody {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // stable log line
+	return keys
 }

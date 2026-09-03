@@ -244,21 +244,39 @@
 ### Scenario: 缓存未命中才调用 LLM
 - Given 职位描述 sha256 不在 enrich_cache
 - When enrich 处理该职位
-- Then 调用 LLM 一次（并发 ≤3、超时 60s、失败重试 1 次）
+- Then 调用 LLM 一次；失败后按 `LLM_RETRIES` 重试（默认 1 次），并发与超时由 `LLM_CONCURRENCY` / `LLM_TIMEOUT` 决定（当前 8 / 300s）
 - And 结果写入 enrich_cache
 
 ### Scenario: fail-open 保留规则层结果
-- Given Bifrost 不可达（或 401、DGX 关机）
+- Given LLM 端点不可达（或 401、DGX 关机）
 - When enrich 执行
 - Then 作业退出码 0
 - And 保留规则层结果、标记 status='partial'
 - And `jobs_sg_enrich_backlog` 反映未富化职位积压
 - And 不触发 CronJob 失败告警风暴
 
+### Scenario: 换提示词不能吃到旧缓存
+- Given 设了 `LLM_PROMPT` 但没设 `LLM_PROMPT_VERSION`
+- When enrich 启动
+- Then 版本号自动派生成 `custom-<prompt 的 hash>`，与内置提示词的 `v1` 不同
+- And 因此 `enrich_cache` 全部未命中，所有岗位用新提示词重跑一遍
+
+### Scenario: 输出被上限截断要说清楚
+- Given `LLM_MAX_TOKENS` 设得比模型需要的小
+- When 模型返回 `finish_reason=length`（开推理时 `content` 是 null）
+- Then 报错明确指出是截断并点名 `LLM_MAX_TOKENS`，而不是报 "bad JSON"
+
+### Scenario: 关推理的开关必须真的生效
+- Given `LLM_THINKING=false`
+- When enrich 调用模型
+- Then 请求体里 `chat_template_kwargs` 的键名取自 `LLM_THINKING_KWARG`（默认 `enable_thinking`）
+- And 若响应的 `usage.completion_tokens_details.reasoning_tokens` 仍 > 0，每进程打一条 WARN 点名该改键名
+- And 不设 `LLM_THINKING` 时请求体里不出现 `chat_template_kwargs`
+
 ### Scenario: 模型降级链
-- Given 主模型 custom_dgx 调用失败
+- Given `LLM_MODELS` 第一项调用失败
 - When enrich 重试
-- Then 依次尝试 custom_m2 → 纯规则
+- Then 按 `LLM_MODELS` 的顺序依次尝试后续模型 → 纯规则
 - And 全部失败时保留规则层结果、status='partial'
 
 ---
