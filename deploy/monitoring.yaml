@@ -55,7 +55,7 @@ spec:
         #
         # A level threshold cannot work here: the first run's baseline scan
         # stores every currently-live posting at once (~11k candidates), and the
-        # LLM drains ~420 a night against ~300 arriving — so an absolute alert
+        # LLM drains ~900 a night against ~300 arriving — so an absolute alert
         # fires on night one and keeps firing for the month or two it takes to
         # burn down. That is the same cry-wolf failure JobsSgIngestStale had.
         #
@@ -64,7 +64,7 @@ spec:
         # post-enrich trough returns to roughly the same place each day.
         # Comparing today's trough against yesterday's asks the question that
         # actually matters: is the pipeline still keeping up? A stalled DGX, an
-        # expired virtual key or an enrich job that stopped running all push the
+        # endpoint that moved or an enrich job that stopped running all push the
         # floor up by a day's intake; a large backlog that is steadily draining
         # pushes it down and stays quiet.
         - alert: JobsSgEnrichBacklogGrowing

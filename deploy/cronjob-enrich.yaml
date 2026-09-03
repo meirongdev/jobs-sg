@@ -29,14 +29,37 @@ spec:
               image: ghcr.io/meirongdev/jobs-sg
               command: ["/usr/local/bin/jobs-sg-enrich"]
               args: ["--data-dir", "/data"]
+              # Every model-facing knob is an LLM_* env var, so swapping the
+              # model or the endpoint is a manifest edit rather than a release.
+              # Full list and defaults: docs/09-deploy-runbook.md §3.2.
               env:
+                # OpenAI-compatible endpoint. Live value is the DGX vLLM server
+                # reached directly over Tailscale (the Bifrost gateway was
+                # retired 2026-09); homelab holds the address. Unset the whole
+                # variable to fall back to rule-only enrichment.
                 - name: LLM_BASE_URL
-                  value: http://bifrost.bifrost.svc.cluster.local:8080
-                - name: BIFROST_VK
-                  valueFrom:
-                    secretKeyRef:
-                      name: jobs-sg-secrets
-                      key: bifrost-vk
+                  value: http://<dgx-host>:8000
+                # Degradation chain, comma-separated, first preferred. A raw vLLM
+                # server serves the bare id and 404s the provider-prefixed form a
+                # gateway would want. Set it explicitly: the in-code default is a
+                # backstop, not the deployment's record of which model runs.
+                - name: LLM_MODELS
+                  value: qwen38-flash-next
+                # Bounded fan-out onto a shared GPU box, so the ceiling is the
+                # backend's spare capacity rather than this pod's CPU.
+                - name: LLM_CONCURRENCY
+                  value: "8"
+                # Per-call seconds. Non-streaming, so this covers the whole
+                # generation. Sampled worst case is ~59s, but ~1.3% of calls
+                # still exceed 300s because a reasoning model can run away on
+                # one posting. Raising this makes a runaway cost more; those
+                # postings are retried by the next night's run anyway, so
+                # LLM_RETRIES=0 is the cheaper answer. See docs/09 §5.
+                - name: LLM_TIMEOUT
+                  value: "300"
+                # Auth, when an endpoint needs it: LLM_API_KEY plus optional
+                # LLM_AUTH_HEADER (default Authorization/Bearer). The current
+                # in-tailnet vLLM server takes no credential.
               resources:
                 requests: {cpu: 100m, memory: 192Mi}
                 limits: {cpu: 500m, memory: 512Mi}

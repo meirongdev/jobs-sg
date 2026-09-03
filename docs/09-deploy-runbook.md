@@ -67,22 +67,71 @@ web.yaml  monitoring.yaml  kustomization.yaml
 
 ---
 
-## 3. Vault 密钥
+## 3. 密钥与 LLM 配置
 
-`jobs-sg-secrets` 需要四个键：
+### 3.1 Vault 密钥
+
+`jobs-sg-secrets` 需要三个键：
 
 | 键 | 用途 | 来源 |
 |---|---|---|
 | `telegram-bot-token` | 周报推送 | 复用 `secret/homelab/telegram` |
 | `telegram-chat-id` | 同上 | 同上 |
 | `telegram-thread-id` | **内容话题**，必须与告警话题（`2`）不同 | 见 [02](02-design.md) §4.3 |
-| `bifrost-vk` | Bifrost `x-bf-vk` 虚拟密钥 | Bifrost UI 里创建，**持久化在 PVC 的 SQLite、不在 git**，再手工写进 Vault |
 
-> **键名要与 manifests 逐字一致**（`deploy/cronjob-*.yaml` 的 `secretKeyRef.key`）。写错 `bifrost-vk` 不会报错：`enrich` 是 fail-open 的，取不到密钥就退回纯规则层继续跑完、退出码 0——**技术栈富化静默失效，而作业看起来是成功的**。上线后务必按 §4 验一次 LLM 层真的在工作。
+> **键名要与 manifests 逐字一致**（`deploy/cronjob-*.yaml` 的 `secretKeyRef.key`）。密钥取不到不会报错：`enrich` 是 fail-open 的，会退回纯规则层继续跑完、退出码 0——**技术栈富化静默失效，而作业看起来是成功的**。上线后务必按 §4 验一次 LLM 层真的在工作。
 >
 > `telegram-thread-id` 必须是**整数字符串**，非数字会被代码拒绝并报错（宁可失败也不会静默发进 General 话题）。
+>
+> `bifrost-vk` 已不再需要：Bifrost 网关 2026-09 退役，enrich 直连 DGX 的 vLLM，端点不要凭证。代码仍认 `BIFROST_VK`（发 `x-bf-vk` 头）并打一条弃用告警，只为让残留清单丢吞吐而不是丢鉴权。
 
-模型链默认 `custom_dgx/deepseek-v4-flash` → `custom_m2` → 纯规则，可用 `LLM_MODELS`（逗号分隔）覆盖；`LLM_BASE_URL` 已硬编码在 `cronjob-enrich.yaml` 指向集群内 Bifrost。
+### 3.2 LLM 参数（换模型只改这里）
+
+模型相关的东西全部是 `cronjob-enrich.yaml` 里的环境变量，**换模型不需要改代码、不需要发版**：
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `LLM_BASE_URL` | 空 | OpenAI 兼容端点。**留空就是纯规则层**，enrich 照常跑完退出 0 |
+| `LLM_MODELS` | `qwen38-flash-next` | 降级链，逗号分隔，第一个优先。裸 vLLM 认裸 id，网关认 `provider/id` 前缀形式，两者互相 404 |
+| `LLM_TIMEOUT` | `300`（秒） | 单次调用预算。端点非流式，这个预算覆盖整个生成过程 |
+| `LLM_CONCURRENCY` | `3` | enrich 扇出上限。天花板是共享 GPU 的余量，不是本地 CPU |
+| `LLM_THINKING` | 不设 | `false` 关推理、`true` 强制开。**不设时请求体里不出现 `chat_template_kwargs`**——有的后端会拒绝不认识的模板参数 |
+| `LLM_THINKING_KWARG` | `enable_thinking` | 模板里那个开关的**键名**。见下方警告 |
+| `LLM_EXTRA_BODY` | 空 | 合并进请求体的 JSON 对象（`top_p`、`max_tokens`、`reasoning_effort`……）。这是新模型要什么怪参数都能塞的兜底口子；`model` / `messages` 不可覆盖，写了会被丢弃并告警 |
+| `LLM_MAX_DESC_CHARS` | `4000` | 送进模型的描述截断长度，给上下文窗口更小的模型留的 |
+| `LLM_API_KEY` | 空 | 端点要鉴权时用。空则完全不发鉴权头 |
+| `LLM_AUTH_HEADER` | `Authorization` | 头名。`Authorization` 会自动补 `Bearer ` 前缀（值里已带 scheme 时不补），其他头名原样发送 |
+| `LLM_RETRIES` | `1` | 单条岗位失败后的重试次数。超时的重试几乎必然再超时一次，见下方说明 |
+| `LLM_MAX_TOKENS` | `0`（不封顶） | 模型输出上限。**设之前先读下面那段**——封低了会把慢成功变成硬失败 |
+| `LLM_PROMPT` | 内置抽取提示词 | 覆盖系统提示词。替代品仍必须要求返回那个 JSON 对象，否则解析不出来 |
+| `LLM_PROMPT_VERSION` | `v1` | 缓存键的一部分。**改了 `LLM_PROMPT` 但没设它时会自动派生 `custom-<hash>`**，防止拿旧提示词的缓存结果糊弄新提示词 |
+
+> **⚠️ 换模型必查：思考开关的键名会变，而且写错不报错。**
+> 2026-09-02 DGX 把 `deepseek-v4-flash` 换成 `qwen38-flash-next` 之后，旧的 `{"thinking": false}` 依然返回 200、依然被接受、**依然完全不生效**。唯一判据是响应里的 `usage.completion_tokens_details.reasoning_tokens`：
+>
+> ```sh
+> curl -sS http://<endpoint>/v1/chat/completions -H 'Content-Type: application/json' \
+>   -d '{"model":"qwen38-flash-next","messages":[{"role":"user","content":"hi"}],
+>        "chat_template_kwargs":{"enable_thinking":false}}' |
+>   python3 -c 'import sys,json; print(json.load(sys.stdin)["usage"])'
+> ```
+>
+> 2026-09-03 在生产端点实测同一条岗位：不带参数 792 个 reasoning token，`{"thinking":false}` 1108 个，`{"enable_thinking":false}` 0 个。
+> 代码现在会自己发现这件事：设了 `LLM_THINKING=false` 但模型仍然吐 reasoning token 时，enrich 每进程打一条 `reasoning was not disabled` 的 WARN，点名让你改 `LLM_THINKING_KWARG`。
+
+**换模型的完整清单**：
+
+1. 改 `LLM_MODELS`（必要时连 `LLM_BASE_URL` 一起改）。
+2. 本机对着新端点跑一次验收——**这条用例默认跳过，不进 CI**：
+
+   ```sh
+   LLM_LIVE_URL=http://<endpoint>:8000 LLM_LIVE_MODEL=<新模型 id> \
+     go test ./internal/llm -run Live -v
+   ```
+
+   它会实际调一次模型并断言推理确实被关掉，同时打印本次耗时。挂了就换 `LLM_LIVE_KWARG=<别的键名>` 重试，**试通的那个值就是要写进清单的 `LLM_THINKING_KWARG`**。
+3. 跑一次 `enrich`，看首行 `llm enabled` 日志里的 `models` / `thinking` / `timeout` / `extra_body` 是不是预期值，以及有没有 `llm config` 的告警（参数写错会被丢弃，只在这里现形）。
+4. 按 §5 重测一次耗时并更新那张表。注意小样本测不出尾巴——真正要看的是跑满一轮之后日志里有多少条 `context deadline exceeded`，比例上到百分之几就该按 §5 的警告封顶生成，而不是调大 `LLM_TIMEOUT`。
 
 ---
 
@@ -137,7 +186,25 @@ curl -sS localhost:9090/metrics | grep -E 'jobs_sg_llm_calls_total|jobs_sg_enric
 | 周日那轮 `kind=full_reconcile` 而非 `incremental` | ✅ | 告警已同时匹配两个 kind |
 | 首个完整周报里角色分布偏 Backend | ⚠️ | 见 [05](05-roadmap.md) Backlog 第 1 条：taxonomy 未核定时未映射的 `251*` 码回落 Backend。**发布首个周报前先做完 Phase 0 核定** |
 
-**加速排空积压**（可选）：给 enrich 临时加环境变量 `LLM_THINKING=false`——实测 18.8x 提速（60.5s → 3.2s/条），代价是抽取略松，但所有词都会过 `tech_taxonomy` 白名单，杂词只会落进 `unmapped_tech`。排空后去掉。
+**加速排空积压**（可选）：给 enrich 临时加环境变量 `LLM_THINKING=false`，排空后去掉。代价是抽取略松，但所有词都会过 `tech_taxonomy` 白名单，杂词只会落进 `unmapped_tech`。
+
+2026-09-03 在 `qwen38-flash-next` 上用 16 条真实岗位、并发 8 实测（旧模型的数字已作废）：
+
+| | 单次均值 | 单次最坏 | 吞吐（并发 8） |
+|---|---|---|---|
+| 开推理（当前默认） | 18.7s | 58.7s | 15 条/分钟 |
+| `LLM_THINKING=false` | 2.8s | 6.1s | 154 条/分钟 |
+
+> **⚠️ 300s 不是充足余量。** 上面的最坏值来自 16 条样本，尾巴比这重得多：生产日志里约 **1.3% 的调用会超过 300s**
+> （2026-09-02 那轮 3/204、09-03 那轮 3/242，两轮是不同岗位，新旧模型都一样）。这不是端点慢，是推理模型在个别岗位上跑飞。
+>
+> **别急着用 `LLM_MAX_TOKENS` 封顶。** 2026-09-03 用 24 条真实岗位实测，开推理时正常抽取的 completion token 分布是
+> p50 475 / p90 2631 / **max 4359**；而并发 8 下要烧满 300s 大约得跑到 7000 token 以上。封顶值必须落在这条窄带里才有用，
+> 封低了模型会先把推理写满、`content` 直接是 null，一次慢成功就变成硬失败（代码会明确报"截断"而不是"bad JSON"）。
+>
+> **更划算的是 `LLM_RETRIES=0`。** 超时是 fail-open 的，这些岗位留在积压里，第二天那轮本来就会重试；而当场重试同一条岗位、
+> 同一个模型，几乎必然再烧一个完整的 `LLM_TIMEOUT`。关掉当场重试等于把跑飞的代价直接砍半，且没有任何截断风险。
+> 想彻底消掉跑飞就 `LLM_THINKING=false`，代价是抽取略松。
 
 ---
 

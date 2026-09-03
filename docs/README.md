@@ -24,7 +24,7 @@
 
 - **代码侧 Phase 1 + Phase 2 基本完成**：ingest（增量/首跑基线/周对账 + closed_at 生命周期）、enrich（规则 + LLM 降级链、fail-open）、report（7 节周报 HTML/MD + Telegram 求职者口播）、web（求职者统计页 `/` `/tech` `/pay` `/companies` + `/ops` 运维视图 + 周报归档 `/reports` `/w/{week}` + `/healthz` + 独立端口 `/metrics`；`/daily` 301 → `/ops`）。
 - **求职者站点 Phase A 已完成**（A-2b + A-2c，2026-08-07/08）：`internal/metric` 纯聚合层 + `internal/view` 共享视觉，周报与实时页共用一份口径；`?exp=`/`?role=` 镜头、抑制一等状态均已落地。
-- **尚未部署**——这是当前唯一的关键路径。照 [09-deploy-runbook.md](09-deploy-runbook.md) 走。
+- **已部署在 k3s-homelab**（ns `jobs-sg`，web + 三个 CronJob）。上线步骤与验证判据仍见 [09-deploy-runbook.md](09-deploy-runbook.md)。
 - **Phase 0 分类口径核定仍未做**，已刻意推迟到首次 ingest 之后（届时 `jobs.db` 里就有现成样本），理由与风险见 [05-roadmap.md](05-roadmap.md) Backlog 第 1 条。**发布首个完整周报前应先做完。**
 
 ## 变更记录
@@ -35,4 +35,5 @@
 | 2026-08-02 | v2 | 实测驱动的 k3s 设计（API 直连 / CronJob / SQLite / Go）+ §15 多源化。原文见 git `ca356f6` |
 | 2026-08-07 | — | **上线准备**：一轮设计审查修完 P0/P1/P2（reopen 缺失、对账重复归档、告警每周误报、bot token 进日志、首页裸 404、`/metrics` 公网可达、指标类型与标签基数、缓存惊群、SGT 日历两处）；新增 09 部署 runbook；roadmap 拆分「代码完成」与「部署完成」 |
 | 2026-08-09 | — | **文档同步**：07-prd / 02-design / 03-data-model / 08-bdd / README 对齐 2026-08-07 求职者站点 spec（定位、路由、周报 7 节、`internal/metric` 口径、抑制一等状态、新索引）；`/daily` 改名 `/ops` 落文 |
+| 2026-09-03 | — | **LLM 配置化**：模型相关参数全部下沉到 `LLM_*` 环境变量（端点/模型链/超时/并发/重试/思考开关及其键名/提示词及版本/输出上限/描述截断/鉴权头/请求体兜底），换模型不再改代码；修复换模型后 `chat_template_kwargs` 键名静默失效（只有 `enable_thinking` 生效），并加了 `reasoning_tokens` 守卫；耗时数字按 `qwen38-flash-next` 回校；清理 Bifrost 网关退役残留（改为直连 DGX vLLM）。见 [09](09-deploy-runbook.md) §3.2 |
 | 2026-08-02 | v2.1 | **评审修正 + 文档重构**：①全量对账 closed_at 判定重写（success 门控 / 两周未见 / reopen）；②日增量归档改全类目；③跨源指纹降级为"动工前重审"；④首跑基线策略；⑤fixture 回放测试入 Phase 1 DoD。原两份文档拆分为 01–06 + archive |

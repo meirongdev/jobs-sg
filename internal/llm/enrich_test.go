@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,7 +191,7 @@ func TestFailOpenPreservesRuleResults(t *testing.T) {
 	ctx := context.Background()
 	db, tax, dir := setupEnrich(t)
 	seedCandidate(t, db, dir, "u1", "Backend Engineer", "We use golang.")
-	stub := stubExtractor{err: errors.New("bifrost unreachable")}
+	stub := stubExtractor{err: errors.New("llm endpoint unreachable")}
 	en := &Enricher{DB: db, DataDir: dir, Taxonomy: tax, LLM: stub, Model: "m", PromptVersion: "v1"}
 	res, err := en.Run(ctx)
 	if err != nil {
@@ -211,7 +212,7 @@ func TestFailOpenPreservesRuleResults(t *testing.T) {
 
 func TestChainDegradesToNext(t *testing.T) {
 	ctx := context.Background()
-	failing := stubExtractor{err: errors.New("custom_dgx down")}
+	failing := stubExtractor{err: errors.New("primary model down")}
 	ok := stubExtractor{res: Result{Languages: []string{"Go"}}}
 	chain := Chain{Extractors: []Extractor{failing, ok}}
 	res, err := chain.Extract(ctx, "t", "d")
@@ -220,5 +221,69 @@ func TestChainDegradesToNext(t *testing.T) {
 	}
 	if len(res.Languages) != 1 || res.Languages[0] != "Go" {
 		t.Errorf("chain result = %+v", res)
+	}
+}
+
+// countingExtractor records how many times the LLM layer was actually called.
+type countingExtractor struct {
+	mu    sync.Mutex
+	calls int
+	err   error
+}
+
+func (c *countingExtractor) Extract(ctx context.Context, title, desc string) (Result, error) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	if c.err != nil {
+		return Result{}, c.err
+	}
+	return Result{Languages: []string{"go"}}, nil
+}
+
+// TestAttemptsAreConfigurable makes the retry budget a knob rather than a
+// literal. It matters for cost: a call that exhausted the timeout will almost
+// certainly exhaust it again, so a retry there buys a second full timeout of
+// shared GPU for the same outcome. The posting stays in the backlog either way.
+func TestAttemptsAreConfigurable(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		attempts int
+		want     int
+	}{
+		{"default retries once", 0, DefaultAttempts},
+		{"no retry", 1, 1},
+		{"three attempts", 3, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			db, tax, dir := setupEnrich(t)
+			seedCandidate(t, db, dir, "u1", "Backend Engineer", "We use golang.")
+			stub := &countingExtractor{err: errors.New("endpoint down")}
+			en := &Enricher{DB: db, DataDir: dir, Taxonomy: tax, LLM: stub,
+				Model: "m", PromptVersion: "v1", Attempts: tc.attempts}
+			if _, err := en.Run(ctx); err != nil {
+				t.Fatalf("Run should fail-open, got %v", err)
+			}
+			if stub.calls != tc.want {
+				t.Errorf("called %d times, want %d", stub.calls, tc.want)
+			}
+		})
+	}
+}
+
+// TestSuccessDoesNotRetry keeps the budget from being spent on working calls.
+func TestSuccessDoesNotRetry(t *testing.T) {
+	ctx := context.Background()
+	db, tax, dir := setupEnrich(t)
+	seedCandidate(t, db, dir, "u1", "Backend Engineer", "We use golang.")
+	stub := &countingExtractor{}
+	en := &Enricher{DB: db, DataDir: dir, Taxonomy: tax, LLM: stub,
+		Model: "m", PromptVersion: "v1", Attempts: 3}
+	if _, err := en.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stub.calls != 1 {
+		t.Errorf("called %d times, want 1 — a success must not retry", stub.calls)
 	}
 }

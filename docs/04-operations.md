@@ -108,7 +108,7 @@ spec:
 
 8. **DNS 不需要任何手工步骤**。写 HTTPRoute 就是建 DNS（external-dns + 通配隧道路由）。**不要**改 `cloudflare/terraform`。注意 `policy: upsert-only`——删 HTTPRoute 不会删 DNS 记录。
 
-9. **Bifrost 集群内调用同样需要 virtual key**。governance PreHook 在入口之前生效，走 `bifrost.bifrost.svc` 不能绕过。密钥在 Bifrost UI 创建（持久化在 PVC 的 SQLite，**不在 git**），再手工写进 Vault。
+9. ~~**Bifrost 集群内调用同样需要 virtual key**~~ —— **已作废**：Bifrost 网关 2026-09 退役，enrich 直连 DGX 上的 vLLM，端点不要凭证。换模型/换端点的做法见 [09](09-deploy-runbook.md) §3.2。
 
 10. **homepage 的 ConfigMap 用 `subPath` 挂载，不热加载**。改完必须 `kubectl --context oracle-k3s rollout restart deployment/homepage -n homepage`。
 
@@ -201,12 +201,13 @@ for pat in bifrost-data calibre-web-automated-config jobs-sg-data; do
 | Namespace PSA | `restricted`（而非其他 ns 的 `baseline`）——全新 Go 应用可轻松满足，白拿一档 |
 | Pod 安全上下文 | `runAsNonRoot: true`、`runAsUser: 10001`、`allowPrivilegeEscalation: false`、`capabilities.drop: [ALL]`、`seccompProfile: RuntimeDefault`、`readOnlyRootFilesystem: true`（`/tmp` 用 emptyDir） |
 | 镜像 | `ghcr.io/meirongdev/jobs-sg`，**按 digest 固定**（Kyverno Enforce） |
-| 密钥 | Bifrost virtual key + Telegram bot token 走 Vault → ESO；**不进 git** |
+| 密钥 | Telegram bot token 走 Vault → ESO；**不进 git**。LLM 端点当前无凭证 |
 | 网络 | 集群当前无 CiliumNetworkPolicy（有意延后），本项目不单独引入，保持一致 |
 
-**Vault 路径**：`secret/homelab/jobs-sg`，键 `bifrost-vk`、`telegram-bot-token`、`telegram-chat-id`、`telegram-thread-id`。
+**Vault 路径**：`secret/homelab/jobs-sg`，键 `telegram-bot-token`、`telegram-chat-id`、`telegram-thread-id`。
+`bifrost-vk` 自 Bifrost 网关 2026-09 退役后不再被消费——enrich 直连 DGX vLLM，端点不要凭证（见 [09](09-deploy-runbook.md) §3.1）。
 
-web 服务**不做认证**——公开就业市场统计，无个人数据（[02](02-design.md) §4.4）；若日后需要，按 bifrost 模式加 oauth2-proxy。
+web 服务**不做认证**——公开就业市场统计，无个人数据（[02](02-design.md) §4.4）；若日后需要，再加 oauth2-proxy。
 
 ---
 

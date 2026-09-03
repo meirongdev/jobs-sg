@@ -22,6 +22,8 @@ make vet
 ```sh
 ./bin/jobs-sg-ingest --data-dir ./data --delay-ms 1500      # 首跑=全量基线
 ./bin/jobs-sg-enrich --data-dir ./data                       # 无 LLM_BASE_URL 时纯规则层
+LLM_BASE_URL=http://<endpoint>:8000 LLM_MODELS=qwen38-flash-next \
+  ./bin/jobs-sg-enrich --data-dir ./data                     # 接 LLM 层；全部参数见 docs/09 §3.2
 ./bin/jobs-sg-report --data-dir ./data --week 2026-08-03 --base-url http://localhost:8080
 ./bin/jobs-sg-web --data-dir ./data --addr :8080             # 打开 http://localhost:8080
 ```
